@@ -1,0 +1,6 @@
+# Global code ownership
+# @thorirtho owns all files by default
+* @thorirtho
+
+# CODEOWNERS file can only be changed by the Straumur admin team
+.github/CODEOWNERS @kvika/straumur-admin
