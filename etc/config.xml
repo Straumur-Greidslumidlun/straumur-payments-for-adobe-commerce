@@ -17,7 +17,7 @@
                 <can_initialize>1</can_initialize>
                 <is_gateway>1</is_gateway>
                 <sort_order>1</sort_order>
-                <debug>1</debug>
+                <debug>0</debug>
                 <environment>sandbox</environment>
                 <culture>is</culture>
                 <send_items>1</send_items>
