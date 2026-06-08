@@ -5,6 +5,7 @@ namespace Straumur\Payment\Gateway\Request;
 
 use Magento\Payment\Gateway\Request\BuilderInterface;
 use Magento\Payment\Gateway\Helper\SubjectReader;
+use Psr\Log\LoggerInterface;
 use Straumur\Payment\Helper\Data as StraumurHelper;
 
 class RefundRequest implements BuilderInterface
@@ -15,12 +16,20 @@ class RefundRequest implements BuilderInterface
     private $straumurHelper;
 
     /**
+     * @var LoggerInterface
+     */
+    private $logger;
+
+    /**
      * @param StraumurHelper $straumurHelper
+     * @param LoggerInterface $logger
      */
     public function __construct(
-        StraumurHelper $straumurHelper
+        StraumurHelper $straumurHelper,
+        LoggerInterface $logger
     ) {
         $this->straumurHelper = $straumurHelper;
+        $this->logger = $logger;
     }
 
     /**
@@ -48,13 +57,11 @@ class RefundRequest implements BuilderInterface
         }
 
         // Log which reference is being used for troubleshooting
-        \Magento\Framework\App\ObjectManager::getInstance()
-            ->get(\Psr\Log\LoggerInterface::class)
-            ->info('Refund using authorization reference', [
-                'order_id' => $order->getOrderIncrementId(),
-                'payfac_reference' => $payfacReference,
-                'source' => $payment->getAdditionalInformation('straumur_authorization_reference') ? 'explicit' : 'fallback'
-            ]);
+        $this->logger->info('Refund using authorization reference', [
+            'order_id' => $order->getOrderIncrementId(),
+            'payfac_reference' => $payfacReference,
+            'source' => $payment->getAdditionalInformation('straumur_authorization_reference') ? 'explicit' : 'fallback'
+        ]);
 
         return [
             'operation' => 'refund',
@@ -81,17 +88,13 @@ class RefundRequest implements BuilderInterface
         $authTransaction = $payment->getAuthorizationTransaction();
         if ($authTransaction) {
             $authTxnId = $authTransaction->getTxnId();
-            \Magento\Framework\App\ObjectManager::getInstance()
-                ->get(\Psr\Log\LoggerInterface::class)
-                ->info('Found authorization transaction directly', ['txn_id' => $authTxnId]);
+            $this->logger->info('Found authorization transaction directly', ['txn_id' => $authTxnId]);
             return $authTxnId;
         }
 
         // If no direct authorization transaction, walk up the parent chain
         $lastTxnId = $payment->getLastTransId();
-        \Magento\Framework\App\ObjectManager::getInstance()
-            ->get(\Psr\Log\LoggerInterface::class)
-            ->info('Walking transaction chain', ['last_txn_id' => $lastTxnId]);
+        $this->logger->info('Walking transaction chain', ['last_txn_id' => $lastTxnId]);
 
         $transaction = $payment->getTransaction($lastTxnId);
         $visited = []; // Prevent infinite loops
@@ -101,18 +104,14 @@ class RefundRequest implements BuilderInterface
             $txnType = $transaction->getTxnType();
             $parentTxnId = $transaction->getParentTxnId();
 
-            \Magento\Framework\App\ObjectManager::getInstance()
-                ->get(\Psr\Log\LoggerInterface::class)
-                ->info('Checking transaction', [
-                    'txn_id' => $currentTxnId,
-                    'txn_type' => $txnType,
-                    'parent_txn_id' => $parentTxnId
-                ]);
+            $this->logger->info('Checking transaction', [
+                'txn_id' => $currentTxnId,
+                'txn_type' => $txnType,
+                'parent_txn_id' => $parentTxnId
+            ]);
 
             if ($txnType === \Magento\Sales\Model\Order\Payment\Transaction::TYPE_AUTH) {
-                \Magento\Framework\App\ObjectManager::getInstance()
-                    ->get(\Psr\Log\LoggerInterface::class)
-                    ->info('Found authorization in chain', ['txn_id' => $currentTxnId]);
+                $this->logger->info('Found authorization in chain', ['txn_id' => $currentTxnId]);
                 return $currentTxnId;
             }
 
@@ -125,9 +124,7 @@ class RefundRequest implements BuilderInterface
             $transaction = $payment->getTransaction($parentTxnId);
         }
 
-        \Magento\Framework\App\ObjectManager::getInstance()
-            ->get(\Psr\Log\LoggerInterface::class)
-            ->warning('No authorization transaction found in chain');
+        $this->logger->warning('No authorization transaction found in chain');
 
         return null;
     }
