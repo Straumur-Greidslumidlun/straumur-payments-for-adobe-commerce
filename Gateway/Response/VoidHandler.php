@@ -60,7 +60,7 @@ class VoidHandler implements HandlerInterface
         $order->setStatus('canceled');
         
         $order->addCommentToStatusHistory(
-            __('Payment cancelation request sent to Straumur. Transaction ID: %1', $payfacReference)
+            __('Payment cancellation request sent to Straumur. Transaction ID: %1', $payfacReference)
         );
 
         $payment->setAdditionalInformation('straumur_void_datetime', $responseDateTime);
