@@ -1,0 +1,22 @@
+<?php
+/**
+ * @var \Straumur\Payment\Block\Info $block
+ */
+?>
+<div class="payment-method straumur-payment">
+    <strong><?= $block->escapeHtml($block->getMethod()->getTitle()) ?></strong>
+    
+    <?php $specificInfo = $block->getSpecificInformation(); ?>
+    <?php if (!empty($specificInfo)): ?>
+        <div class="payment-details">
+            <table class="payment-method-info">
+                <?php foreach ($specificInfo as $label => $value): ?>
+                    <tr>
+                        <td><strong><?= $block->escapeHtml($label) ?>:</strong></td>
+                        <td><?= $block->escapeHtml($value) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </table>
+        </div>
+    <?php endif; ?>
+</div>

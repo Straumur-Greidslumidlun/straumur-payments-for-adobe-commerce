@@ -1,0 +1,292 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <virtualType name="StraumurPaymentGatewayFacade" type="Magento\Payment\Model\Method\Adapter">
+        <arguments>
+            <argument name="code" xsi:type="const">Straumur\Payment\Model\Ui\ConfigProvider::CODE</argument>
+            <argument name="formBlockType" xsi:type="string">Magento\Payment\Block\Form</argument>
+            <argument name="infoBlockType" xsi:type="string">Straumur\Payment\Block\Info</argument>
+            <argument name="valueHandlerPool" xsi:type="object">StraumurPaymentValueHandlerPool</argument>
+            <argument name="commandPool" xsi:type="object">StraumurPaymentCommandPool</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="StraumurPaymentCommandPool" type="Magento\Payment\Gateway\Command\CommandPool">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="initialize" xsi:type="string">Straumur\Payment\Gateway\Command\InitializeCommand</item>
+                <item name="authorize" xsi:type="string">Straumur\Payment\Gateway\Command\AuthorizeCommand</item>
+                <item name="capture" xsi:type="string">Straumur\Payment\Gateway\Command\CaptureCommand</item>
+                <item name="void" xsi:type="string">Straumur\Payment\Gateway\Command\VoidCommand</item>
+                <item name="refund" xsi:type="string">Straumur\Payment\Gateway\Command\RefundCommand</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <type name="Straumur\Payment\Gateway\Command\InitializeCommand">
+        <arguments>
+            <argument name="authorizeCommand" xsi:type="object">Straumur\Payment\Gateway\Command\AuthorizeCommand</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+            <argument name="helper" xsi:type="object">Straumur\Payment\Helper\Data</argument>
+        </arguments>
+    </type>
+    <virtualType name="StraumurPaymentValueHandlerPool" type="Magento\Payment\Gateway\Config\ValueHandlerPool">
+        <arguments>
+            <argument name="handlers" xsi:type="array">
+                <item name="default" xsi:type="string">StraumurPaymentConfigValueHandler</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="StraumurPaymentConfig" type="Straumur\Payment\Gateway\Config\Config">
+        <arguments>
+            <argument name="methodCode" xsi:type="const">Straumur\Payment\Model\Ui\ConfigProvider::CODE</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="StraumurPaymentConfigValueHandler" type="Magento\Payment\Gateway\Config\ConfigValueHandler">
+        <arguments>
+            <argument name="configInterface" xsi:type="object">StraumurPaymentConfig</argument>
+        </arguments>
+    </virtualType>
+    <type name="Straumur\Payment\Block\Info">
+        <arguments>
+            <argument name="config" xsi:type="object">StraumurPaymentConfig</argument>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+        </arguments>
+    </type>
+    <virtualType name="StraumurPaymentTransferFactory" type="Straumur\Payment\Gateway\Http\TransferFactory">
+        <arguments>
+            <argument name="transferBuilder" xsi:type="object">Magento\Payment\Gateway\Http\TransferBuilder</argument>
+            <argument name="config" xsi:type="object">StraumurPaymentConfig</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </virtualType>
+    <type name="Straumur\Payment\Gateway\Command\AuthorizeCommand">
+        <arguments>
+            <argument name="requestBuilder" xsi:type="object">Straumur\Payment\Gateway\Request\SessionRequest</argument>
+            <argument name="transferFactory" xsi:type="object">StraumurPaymentTransferFactory</argument>
+            <argument name="client" xsi:type="object">Straumur\Payment\Gateway\Http\Client</argument>
+            <argument name="responseHandler" xsi:type="object">Straumur\Payment\Gateway\Response\SessionHandler</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+            <argument name="systemLogger" xsi:type="object">Psr\Log\LoggerInterface</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Gateway\Request\SessionRequest">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Gateway\Response\SessionHandler">
+        <arguments>
+            <argument name="orderRepository" xsi:type="object">Magento\Sales\Api\OrderRepositoryInterface</argument>
+            <argument name="config" xsi:type="object">StraumurPaymentConfig</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+    <type name="Straumur\Payment\Gateway\Command\CaptureCommand">
+        <arguments>
+            <argument name="requestBuilder" xsi:type="object">Straumur\Payment\Gateway\Request\CaptureRequest</argument>
+            <argument name="transferFactory" xsi:type="object">StraumurPaymentTransferFactory</argument>
+            <argument name="client" xsi:type="object">Straumur\Payment\Gateway\Http\Client</argument>
+            <argument name="responseHandler" xsi:type="object">Straumur\Payment\Gateway\Response\CaptureHandler</argument>
+        </arguments>
+    </type>
+    <type name="Straumur\Payment\Gateway\Command\RefundCommand">
+        <arguments>
+            <argument name="requestBuilder" xsi:type="object">Straumur\Payment\Gateway\Request\RefundRequest</argument>
+            <argument name="transferFactory" xsi:type="object">StraumurPaymentTransferFactory</argument>
+            <argument name="client" xsi:type="object">Straumur\Payment\Gateway\Http\Client</argument>
+            <argument name="responseHandler" xsi:type="object">Straumur\Payment\Gateway\Response\RefundHandler</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+    <type name="Straumur\Payment\Gateway\Command\VoidCommand">
+        <arguments>
+            <argument name="requestBuilder" xsi:type="object">Straumur\Payment\Gateway\Request\VoidRequest</argument>
+            <argument name="transferFactory" xsi:type="object">StraumurPaymentTransferFactory</argument>
+            <argument name="client" xsi:type="object">Straumur\Payment\Gateway\Http\Client</argument>
+            <argument name="responseHandler" xsi:type="object">Straumur\Payment\Gateway\Response\VoidHandler</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Gateway\Response\CaptureHandler">
+        <arguments>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+        </arguments>
+    </type>
+
+    <type name="Straumur\Payment\Gateway\Response\RefundHandler">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+            <argument name="straumurHelper" xsi:type="object">Straumur\Payment\Helper\Data</argument>
+        </arguments>
+    </type>
+    <type name="Straumur\Payment\Model\Service\QuoteSessionCreator">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
+    <!-- API Configuration using Gateway pattern -->
+    <preference for="Straumur\Payment\Api\StraumurApiInterface" type="Straumur\Payment\Model\StraumurApi"/>
+    
+    <type name="Straumur\Payment\Model\StraumurApi">
+        <arguments>
+            <argument name="httpClient" xsi:type="object">Straumur\Payment\Gateway\Http\Client</argument>
+            <argument name="transferFactory" xsi:type="object">StraumurPaymentTransferFactory</argument>
+            <argument name="config" xsi:type="object">StraumurPaymentConfig</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
+    <!-- Webhook Configuration -->
+    <preference for="Straumur\Payment\Api\Webhook\RouterInterface" type="Straumur\Payment\Model\Webhook\Router"/>
+    <preference for="Straumur\Payment\Api\Webhook\ValidatorInterface" type="Straumur\Payment\Model\Webhook\Command\PaymentValidator"/>
+    <preference for="Straumur\Payment\Api\Security\HmacValidatorInterface" type="Straumur\Payment\Model\Security\HmacValidator"/>
+
+    <!-- Webhook Router with Processors -->
+    <type name="Straumur\Payment\Model\Webhook\Router">
+        <arguments>
+            <argument name="processors" xsi:type="array">
+                <item name="authorization" xsi:type="object">Straumur\Payment\Model\Webhook\Command\AuthorizationProcessor</item>
+                <item name="capture" xsi:type="object">Straumur\Payment\Model\Webhook\Command\CaptureProcessor</item>
+                <item name="void" xsi:type="object">Straumur\Payment\Model\Webhook\Command\VoidProcessor</item>
+                <item name="refund" xsi:type="object">Straumur\Payment\Model\Webhook\Command\RefundProcessor</item>
+                <item name="adjustment" xsi:type="object">Straumur\Payment\Model\Webhook\Command\AdjustmentProcessor</item>
+                <item name="tokenization" xsi:type="object">Straumur\Payment\Model\Webhook\Command\TokenizationProcessor</item>
+            </argument>
+        </arguments>
+    </type>
+
+    
+    <!-- Logger Configuration -->
+    <type name="Straumur\Payment\Helper\Data">
+        <arguments>
+            <argument name="config" xsi:type="object">StraumurPaymentConfig</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Gateway\Http\Client">
+        <arguments>
+            <argument name="config" xsi:type="object">StraumurPaymentConfig</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+    
+    
+    <type name="Straumur\Payment\Gateway\Command\CaptureCommand">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Controller\Webhook\Index">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+    
+    <virtualType name="StraumurPaymentLogger" type="Magento\Framework\Logger\Monolog">
+        <arguments>
+            <argument name="handlers" xsi:type="array">
+                <item name="system" xsi:type="object">StraumurPaymentLoggerHandler</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    
+    <virtualType name="StraumurPaymentLoggerHandler" type="Magento\Framework\Logger\Handler\Base">
+        <arguments>
+            <argument name="fileName" xsi:type="string">/var/log/straumur_payment.log</argument>
+            <argument name="formatter" xsi:type="object">StraumurPaymentJsonFormatter</argument>
+        </arguments>
+    </virtualType>
+    
+    <virtualType name="StraumurPaymentJsonFormatter" type="Straumur\Payment\Logger\Formatter\Json"/>
+
+    <!-- New Transaction Services -->
+    <type name="Straumur\Payment\Model\Service\TransactionCalculator"/>
+    <type name="Straumur\Payment\Model\Service\TransactionValidator">
+        <arguments>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+        </arguments>
+    </type>
+    
+    <!-- Payment State Management Service -->
+    <type name="Straumur\Payment\Model\Service\PaymentStateManager">
+        <arguments>
+            <argument name="straumurHelper" xsi:type="object">Straumur\Payment\Helper\Data</argument>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
+    <!-- Enhanced Webhook Processors with New Services -->
+    <type name="Straumur\Payment\Model\Webhook\Command\CaptureProcessor">
+        <arguments>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+            <argument name="transactionValidator" xsi:type="object">Straumur\Payment\Model\Service\TransactionValidator</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Model\Webhook\Command\VoidProcessor">
+        <arguments>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+        </arguments>
+    </type>
+
+    <type name="Straumur\Payment\Model\Webhook\Command\RefundProcessor">
+        <arguments>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+            <argument name="straumurHelper" xsi:type="object">Straumur\Payment\Helper\Data</argument>
+        </arguments>
+    </type>
+
+    <type name="Straumur\Payment\Model\Webhook\Command\AdjustmentProcessor">
+        <arguments>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+            <argument name="transactionValidator" xsi:type="object">Straumur\Payment\Model\Service\TransactionValidator</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Model\Webhook\Command\AuthorizationProcessor">
+        <arguments>
+            <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
+            <argument name="paymentStateManager" xsi:type="object">Straumur\Payment\Model\Service\PaymentStateManager</argument>
+        </arguments>
+    </type>
+
+    <!-- Secure Session Management Service -->
+    <type name="Straumur\Payment\Model\Service\SessionManager">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
+    <!-- Updated Payment Controllers with SessionManager -->
+    <type name="Straumur\Payment\Controller\Payment\ReturnAction">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+            <argument name="paymentStateManager" xsi:type="object">Straumur\Payment\Model\Service\PaymentStateManager</argument>
+        </arguments>
+    </type>
+    
+    <type name="Straumur\Payment\Controller\Payment\CancelAction">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
+    <!-- ConfigProvider with dependencies -->
+    <type name="Straumur\Payment\Model\Ui\ConfigProvider">
+        <arguments>
+            <argument name="config" xsi:type="object">StraumurPaymentConfig</argument>
+        </arguments>
+    </type>
+    
+    <!-- Register ConfigProvider for checkout -->
+    <type name="Magento\Checkout\Model\CompositeConfigProvider">
+        <arguments>
+            <argument name="configProviders" xsi:type="array">
+                <item name="straumur_payment" xsi:type="object">Straumur\Payment\Model\Ui\ConfigProvider</item>
+            </argument>
+        </arguments>
+    </type>
+</config>

@@ -1,192 +1,150 @@
-# Straumur Payments for Adobe Commerce
+# Straumur Payment for Magento 2
 
-A comprehensive payment module that integrates Straumur payment services with Adobe Commerce (Magento 2) to provide secure and reliable payment processing for Icelandic merchants.
+Straumur Payment delivers hosted redirect and headless embedded checkout experiences for Magento 2 stores. The extension integrates Straumur’s payment services, manages secure session creation, and reconciles orders through webhook callbacks.
 
 ## Features
-
-- **Secure Payment Processing**: PCI-compliant payment handling with Straumur's secure payment gateway
-- **Multiple Payment Methods**: Support for credit cards, debit cards, and other Icelandic payment methods
-- **Real-time Transaction Processing**: Instant payment authorization and capture
-- **Refund Management**: Easy refund processing through the admin panel
-- **Multi-currency Support**: Handle transactions in ISK and other supported currencies
-- **Order Management Integration**: Seamless integration with Adobe Commerce order workflow
-- **Comprehensive Logging**: Detailed transaction logs for debugging and audit purposes
+- Hosted checkout redirect with configurable session timeout, culture, and manual capture support.
+- Headless embedded checkout via GraphQL, including secure session tokens for PWAs and custom storefronts.
+- Webhook processing with HMAC validation, IP whitelisting, and automatic order state transitions.
+- Detailed logging and Magento cache-backed session management for resilience across retries.
 
 ## Requirements
-
-- Adobe Commerce 2.4.x or higher
-- PHP 8.1 or higher
-- SSL certificate (required for production)
-- Straumur merchant account and API credentials
+- Magento Open Source or Adobe Commerce 2.4.7+ (tested against 2.4.8).
+- Straumur API credentials, terminal identifier, and hosted checkout theme.
+- PHP configuration that meets Magento’s platform requirements.
 
 ## Installation
-
-### Via Composer (Recommended)
-
-```bash
-composer require straumur/payments-for-adobe-commerce
-bin/magento module:enable Straumur_Payments
-bin/magento setup:upgrade
-bin/magento setup:di:compile
-bin/magento setup:static-content:deploy
-bin/magento cache:flush
-```
-
-### Manual Installation
-
-1. Download the latest release from this repository
-2. Extract the files to `app/code/Straumur/Payments/`
-3. Enable the module:
+1. Require the module within your Magento project (Composer or submodule checkout).
+2. Ensure the code resides in `app/code/Straumur/Payment` and run:
    ```bash
-   bin/magento module:enable Straumur_Payments
+   bin/magento module:enable Straumur_Payment
    bin/magento setup:upgrade
    bin/magento setup:di:compile
-   bin/magento setup:static-content:deploy
    bin/magento cache:flush
    ```
+3. Enable the payment method and configure credentials before testing in production.
+
+> **Tip:** When developing with Warden, execute Magento CLI commands inside the PHP container (`warden shell -c "<command>"`).
 
 ## Configuration
+Navigate to **Stores → Configuration → Sales → Payment Methods → Straumur Payment**.
 
-1. Navigate to **Stores** > **Configuration** > **Sales** > **Payment Methods**
-2. Find **Straumur Payments** section
-3. Configure the following settings:
-   - **Enabled**: Set to "Yes"
-   - **Title**: Display name for the payment method
-   - **Merchant ID**: Your Straumur merchant identifier
-   - **API Key**: Your Straumur API key
-   - **API Secret**: Your Straumur API secret
-   - **Environment**: Select "Sandbox" for testing or "Production" for live transactions
-   - **Payment Action**: Choose "Authorize" or "Authorize and Capture"
+### API & Environment
+- **Environment** (`environment`): Sandbox or Production endpoints.
+- **Sandbox / Production API URL** (`sandbox_api_url`, `production_api_url`): Base URLs ending with `/api/v1/`.
+- **API Key** (`api_key`) & **Terminal ID** (`terminal_id`): Provided by Straumur; terminal must be 8 alphanumeric characters.
+- **Hosted Checkout Theme ID** (`hc_theme_id`): Optional theme override for the hosted page.
 
-### Test Credentials
+### Payment Behaviour
+- **Enable Manual Capture** (`manual_capture`): Toggle between authorize-only and auto-capture.
+- **Session Timeout** (`session_timeout`): Minutes before a redirect or embedded session expires (5–1440, default 60).
+- **Language / Culture** (`culture`): Hosted checkout locale.
+- **Send Order Items** (`send_items`): Control whether individual line items are transmitted to Straumur.
+- **New Order Status** (`order_status`): Pending status applied before Straumur confirms payment.
 
-For testing purposes, you can use the following sandbox credentials:
-- **Environment**: Sandbox
-- **Merchant ID**: `test_merchant_123`
-- **API Key**: `test_api_key`
-- **API Secret**: `test_api_secret`
+### Webhook & Security
+- **Webhook Secret** (`webhook_secret`): Hexadecimal secret for HMAC validation.
+- **Webhook Allowed IPs** (`webhook_allowed_ips`): Optional allowlist (individual IPs or CIDR ranges).
+- **Debug Mode** (`debug`): Enable verbose logging (`var/log/straumur_payment.log`).
 
-## Usage
+### Headless Mode
+- **Enable Headless (Quote Session) Mode** (`use_quote_session`): Gate for headless integrations; required for GraphQL embedded sessions.
+- Configure headless storefront return URLs to accept `sessionToken` callbacks for both success and cancel flows.
 
-### Frontend
+## Redirect Checkout Flow
+1. Customer selects Straumur Payment during checkout.
+2. `InitializeCommand` prepares the order without capturing payment and delegates to `AuthorizeCommand` to create a Straumur session.
+3. The storefront requests the redirect URL via `Controller/Checkout/GetRedirectUrl.php`, which returns the Straumur hosted checkout link.
+4. Shopper completes payment on Straumur’s hosted page. Straumur redirects back to Magento via `Controller/Payment/ReturnAction.php` on success or `Controller/Payment/Cancel/Index.php` on cancellation.
+5. Magento finalizes the order once Straumur sends webhooks confirming authorization, capture, or refunds. The extension logs all session data for traceability.
 
-1. Customers can select Straumur Payments during checkout
-2. They will be redirected to Straumur's secure payment page
-3. After successful payment, customers are redirected back to the success page
-4. Failed payments redirect to the failure page with error details
+### Redirect Considerations
+- Ensure the configured session timeout accommodates longer checkouts.
+- Order confirmation emails are deferred until Straumur confirms payment to avoid false positives.
+- Duplicate webhooks are handled idempotently; examine `var/log/straumur_payment.log` when diagnosing issues.
 
-### Admin Panel
+## Headless (Embedded) Checkout Flow
+Headless mode lets PWAs and custom frontends embed Straumur’s web component without routing the shopper back to Magento.
 
-1. View transaction details in **Sales** > **Orders**
-2. Process refunds directly from the order view
-3. Monitor payment logs in **System** > **Logs** > **Straumur Payments**
+1. Enable **Headless (Quote Session) Mode** in the Magento Admin for the relevant scope.
+2. From the headless frontend, obtain the cart/quote ID and call the Magento GraphQL mutation:
+   ```graphql
+   mutation CreateStraumurSession($cartId: String!) {
+     createStraumurEmbeddedSession(
+       input: {
+         cartId: $cartId
+         origin: "https://checkout.example.com"
+         threeDsReturnUrl: "https://checkout.example.com/straumur/3ds-return"
+         sendItems: true
+       }
+     ) {
+       sessionId
+       checkoutReference
+       sessionToken
+       expiresAt
+     }
+   }
+   ```
+3. `QuoteSessionCreator` validates the quote, reserves an order reference, formats totals (optionally including line items), and calls Straumur’s `embeddedcheckout/session` endpoint.
+4. Mount Straumur’s web component using the returned `sessionId`. Keep both the `checkoutReference` and `sessionToken` so you can reconcile the order later or query status.
+5. The component drives the payment, including any 3-D Secure challenges via the `threeDsReturnUrl` route you expose in your headless app. Stay on the headless storefront; do not redirect back to Magento.
+6. Inform the shopper of the outcome once Straumur confirms payment. Magento receives the authoritative result via webhook, and you can optionally poll status before that webhook arrives. Secure return URLs (`straumur/payment/return` and `straumur/payment/cancel`) remain available if you prefer a Magento-hosted success page, but headless storefronts typically stay within their own UI.
 
-## API Documentation
+### Embedding the Straumur Web Component
+- Install the official package and mount it once per checkout page:
+  ```bash
+  npm install straumur-web-component --save
+  ```
+  ```js
+  import { StraumurCheckout } from 'straumur-web-component';
 
-### Payment Flow
+  const paymentConfiguration = {
+    environment: 'test',              // swap to 'live' in production
+    sessionId: '<sessionId from GraphQL>',
+    locale: 'en',                     // optional override; defaults to quote culture
+    onPaymentCompleted: () => {
+      // Show success UI, optionally poll straumurEmbeddedSessionStatus while awaiting webhook
+    },
+    onPaymentFailed: () => {
+      // Unblock retry flow or present alternative payment options
+    },
+    placeholders: {
+      cardNumber: 'Card number'       // optional overrides; see NPM typings for full list
+    },
+    localizations: {
+      payButton: 'Pay now'
+    }
+  };
 
-1. **Order Creation**: When a customer places an order, the module creates a payment request
-2. **Payment Authorization**: Customer is redirected to Straumur for payment authorization
-3. **Callback Processing**: Straumur sends payment status via webhook
-4. **Order Completion**: Order status is updated based on payment result
+  const checkout = new StraumurCheckout(paymentConfiguration);
+  checkout.mount('#straumur-component-container');
+  ```
+- The component renders PCI-compliant card fields, handles Straumur-hosted payment flows, and manages any 3-D Secure challenges using the `threeDsReturnUrl` provided during session creation.
+- `onPaymentCompleted` and `onPaymentFailed` fire after Straumur finalizes the embedded flow. Use them to drive your UX, but continue to rely on Magento webhooks for the definitive order state.
+- Keep the DOM container stable—React/Vue integrators should mount via refs to avoid re-rendering the element while a shopper is entering card details.
 
-### Webhook Configuration
+### Optional Status Polling
+Call `straumurEmbeddedSessionStatus(sessionToken: String!)` to obtain Straumur’s latest status payload while waiting for the webhook. Use the result to update frontend messaging, but rely on the webhook processors to transition Magento orders.
 
-Configure the following webhook URL in your Straumur merchant dashboard:
-```
-https://yourstore.com/straumur/webhook/callback
-```
-
-## Development
-
-### Testing
-
-```bash
-# Run unit tests
-vendor/bin/phpunit Test/Unit/
-
-# Run integration tests
-vendor/bin/phpunit Test/Integration/
-```
-
-### Code Standards
-
-This module follows Adobe Commerce coding standards:
-- PSR-12 code style
-- Adobe Commerce best practices
-- Comprehensive documentation
+## Webhooks & Order States
+- Endpoint: `/straumur/webhook/index` (`Controller/Webhook/Index.php`).
+- Straumur signs payloads with the configured HMAC secret; invalid signatures are rejected.
+- `Model/Webhook/Router` dispatches events to specific processors (authorization, capture, refund). Order comments record all state changes.
+- Keep the endpoint reachable from Straumur’s infrastructure and align firewall rules with the IP allowlist.
 
 ## Troubleshooting
+- **Checkout URL not found**: Verify API credentials, session timeout, and that Straumur responded with a session link.
+- **Session token expired**: Confirm timeout configuration and generate a fresh embedded session if the shopper waits beyond Straumur’s TTL (maximum 24 hours).
+- **HMAC validation failed**: Check webhook secret formatting and log output for the signed payload.
+- **Order stuck in `pending_payment`**: Confirm webhooks reach Magento and that the Straumur dashboard shows successful callbacks.
+- Enable debug logging for additional context: `bin/magento config:set payment/straumur_payment/debug 1`.
 
-### Common Issues
-
-**Payment fails with "Invalid credentials" error**
-- Verify your API credentials in the configuration
-- Ensure you're using the correct environment (sandbox/production)
-
-**Orders stuck in "Pending Payment" status**
-- Check webhook configuration
-- Verify webhook URL is accessible
-- Review payment logs for error details
-
-**Refunds not processing**
-- Ensure the original transaction is captured
-- Check API credentials have refund permissions
-- Verify the refund amount doesn't exceed the original transaction
-
-### Debug Mode
-
-Enable debug mode for detailed logging:
-1. Go to **Stores** > **Configuration** > **Sales** > **Payment Methods** > **Straumur Payments**
-2. Set **Debug Mode** to "Yes"
-3. Check logs at `var/log/straumur_payments.log`
-
-## Security
-
-- All sensitive data is encrypted in the database
-- API communications use TLS 1.2 or higher
-- PCI DSS compliance maintained through secure payment flow
-- No card data is stored on the merchant server
-
-## Support
-
-For technical support and questions:
-- **Documentation**: [Straumur Developer Portal](https://developers.straumur.is)
-- **Email**: support@straumur.is
-- **Phone**: +354 440 4000
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-git clone https://github.com/Straumur-Greidslumidlun/straumur-payments-for-adobe-commerce.git
-cd straumur-payments-for-adobe-commerce
-composer install
-```
-
-## Changelog
-
-### Version 1.0.0
-- Initial release
-- Basic payment processing functionality
-- Admin configuration interface
-- Webhook support for payment status updates
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## About Straumur
-
-Straumur is Iceland's leading payment service provider, offering secure and reliable payment solutions for businesses of all sizes. We specialize in local payment methods and provide comprehensive support for Icelandic merchants.
-
----
-
-**Straumur - Greiðslumidlun** | [Website](https://www.straumur.is) | [Developer Portal](https://developers.straumur.is)
+## Support & Resources
+- Straumur web component reference: https://docs.straumur.is/payment-gateway/components/straumur-components/web-component
+- Logs: `var/log/straumur_payment.log` (conditional on debug mode).
+- Commands for cache management and module maintenance:
+  ```bash
+  bin/magento cache:flush
+  rm -rf generated/code/*
+  ```
+For Straumur API onboarding or production enablement, contact your Straumur representative.
