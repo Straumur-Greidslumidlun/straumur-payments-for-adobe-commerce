@@ -48,9 +48,10 @@ class TokenizationProcessor extends AbstractProcessor
      */
     protected function processWebhook(array $payload, OrderInterface $order): array
     {
-        $success = (bool)$payload['Success'];
-        $payfacReference = $payload['PayfacReference'];
-        $checkoutReference = $payload['CheckoutReference'];
+        $successValue = $payload['success'] ?? $payload['Success'] ?? 'false';
+        $success = ($successValue === 'true' || $successValue === true);
+        $payfacReference = (string) ($payload['payfacReference'] ?? $payload['PayfacReference'] ?? '');
+        $checkoutReference = (string) ($payload['checkoutReference'] ?? $payload['CheckoutReference'] ?? '');
         
         if ($success && $order->getCustomerId()) {
             $payment = $order->getPayment();
