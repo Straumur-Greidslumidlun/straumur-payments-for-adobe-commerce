@@ -95,7 +95,11 @@ class HmacValidator implements HmacValidatorInterface
         
         // Convert hex secret to binary as per Straumur documentation
         $binarySecret = hex2bin($secret);
-        
+        if ($binarySecret === false) {
+            $this->logger->error('Invalid webhook secret: expected hexadecimal string');
+            return '';
+        }
+
         $hash = hash_hmac('sha256', $message, $binarySecret, true);
         return base64_encode($hash);
     }
