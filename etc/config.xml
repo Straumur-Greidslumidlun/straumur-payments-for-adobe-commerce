@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <payment>
+            <straumur_payment>
+                <active>0</active>
+                <model>StraumurPaymentGatewayFacade</model>
+                <title>Straumur Payments</title>
+                <manual_capture>0</manual_capture>
+                <payment_action>order</payment_action>
+                <can_authorize>1</can_authorize>
+                <can_capture>1</can_capture>
+                <can_void>1</can_void>
+                <can_refund>1</can_refund>
+                <can_refund_partial_per_invoice>1</can_refund_partial_per_invoice>
+                <can_use_checkout>1</can_use_checkout>
+                <can_initialize>1</can_initialize>
+                <is_gateway>1</is_gateway>
+                <sort_order>1</sort_order>
+                <debug>0</debug>
+                <environment>sandbox</environment>
+                <culture>is</culture>
+                <send_items>1</send_items>
+                <session_timeout>60</session_timeout>
+                <hc_theme_id></hc_theme_id>
+                <sandbox_api_url>https://checkout-api.staging.straumur.is/api/v1/</sandbox_api_url>
+                <production_api_url>https://greidslugatt.straumur.is/api/v1/</production_api_url>
+            </straumur_payment>
+        </payment>
+    </default>
+</config>

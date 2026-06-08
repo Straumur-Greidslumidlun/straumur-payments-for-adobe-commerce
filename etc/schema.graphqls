@@ -1,0 +1,41 @@
+type StraumurEmbeddedSessionOutput {
+    checkoutReference: String!
+    sessionId: String!
+    sessionToken: String!
+    responseIdentifier: String
+    responseDateTime: String
+    expiresAt: String
+}
+
+input StraumurEmbeddedSessionInput {
+    cartId: String!
+    origin: String!
+    threeDsReturnUrl: String!
+    culture: String
+    manualCapture: Boolean
+    expiresAt: String
+    sendItems: Boolean
+}
+
+type StraumurEmbeddedSessionStatus {
+    checkoutReference: String!
+    status: String
+    payfacReference: String
+    responseDateTime: String
+    responseIdentifier: String
+    rawPayload: String
+}
+
+extend type Mutation {
+    createStraumurEmbeddedSession(
+        input: StraumurEmbeddedSessionInput!
+    ): StraumurEmbeddedSessionOutput
+        @resolver(class: "Straumur\\Payment\\Model\\Resolver\\CreateEmbeddedSession")
+}
+
+extend type Query {
+    straumurEmbeddedSessionStatus(
+        sessionToken: String!
+    ): StraumurEmbeddedSessionStatus
+        @resolver(class: "Straumur\\Payment\\Model\\Resolver\\GetEmbeddedSessionStatus")
+}
