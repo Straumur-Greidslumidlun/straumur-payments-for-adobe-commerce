@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+  <system>
+    <section id="payment">
+      <group id="straumur_payment" translate="label" type="text" sortOrder="75" showInDefault="1" showInWebsite="1" showInStore="1">
+        <label>Straumur Payment</label>
+        
+        <!-- Basic Configuration -->
+        <field id="active" translate="label" type="select" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Enabled</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <backend_model>Straumur\Payment\Model\Adminhtml\System\Config\Backend\Active</backend_model>
+        </field>
+        <field id="title" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Title</label>
+          <comment>Payment method title displayed to customers</comment>
+        </field>
+        <field id="description" translate="label" type="textarea" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Description</label>
+          <comment>Payment method description displayed to customers (optional)</comment>
+        </field>
+        <field id="environment" translate="label" type="select" sortOrder="5" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>Environment</label>
+          <source_model>Straumur\Payment\Model\Source\Environment</source_model>
+          <comment>Select sandbox for testing or production for live transactions</comment>
+        </field>
+        
+        <!-- Environment-specific API URLs -->
+        <field id="sandbox_api_url" translate="label" type="text" sortOrder="6" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>Sandbox API URL</label>
+          <backend_model>Straumur\Payment\Model\Adminhtml\System\Config\Backend\ApiUrl</backend_model>
+          <comment>Sandbox environment API URL (must be HTTPS and end with /api/v1/)</comment>
+          <depends>
+            <field id="environment">sandbox</field>
+          </depends>
+        </field>
+        <field id="production_api_url" translate="label" type="text" sortOrder="7" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>Production API URL</label>
+          <backend_model>Straumur\Payment\Model\Adminhtml\System\Config\Backend\ApiUrl</backend_model>
+          <comment>Production environment API URL (must be HTTPS and end with /api/v1/)</comment>
+          <depends>
+            <field id="environment">production</field>
+          </depends>
+        </field>
+        
+        <!-- API Configuration -->
+        <field id="api_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>API Key</label>
+          <backend_model>Straumur\Payment\Model\Adminhtml\System\Config\Backend\ApiKey</backend_model>
+          <comment>Your Straumur API key (minimum 32 characters)</comment>
+        </field>
+        <field id="terminal_id" translate="label" type="text" sortOrder="11" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>Terminal Identifier</label>
+          <backend_model>Straumur\Payment\Model\Adminhtml\System\Config\Backend\TerminalId</backend_model>
+          <comment>Terminal ID provided by Straumur (8 characters alphanumeric)</comment>
+        </field>
+        <field id="hc_theme_id" translate="label" type="text" sortOrder="12" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Hosted Checkout Theme ID</label>
+          <comment>Theme ID for hosted checkout page appearance</comment>
+        </field>
+
+        <!-- Payment Configuration -->
+        <field id="manual_capture" translate="label" type="select" sortOrder="19" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Enable Manual Capture</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <config_path>payment/straumur_payment/manual_capture</config_path>
+          <comment>If Yes, payments will require manual capture. If No, payments will be captured automatically after authorization.</comment>
+        </field>
+        <field id="session_timeout" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Session Timeout (minutes)</label>
+          <comment>Checkout session expiration time. Minimum: 5 minutes, Maximum: 1440 minutes (24 hours), Default: 60 minutes</comment>
+          <validate>validate-number validate-digits-range digits-range-5-1440</validate>
+          <config_path>payment/straumur_payment/session_timeout</config_path>
+        </field>
+        <field id="culture" translate="label" type="select" sortOrder="21" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Language/Culture</label>
+          <source_model>Straumur\Payment\Model\Source\Culture</source_model>
+          <comment>Language for the hosted checkout page</comment>
+        </field>
+        <field id="send_items" translate="label" type="select" sortOrder="22" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Send Order Items</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <comment>If Yes, individual order items will be sent to Straumur. If No, only total amount is sent.</comment>
+        </field>
+        <field id="use_quote_session" translate="label" type="select" sortOrder="22.5" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Enable Headless (Quote Session) Mode</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <comment>When enabled, Straumur sessions are created from the cart for headless or PWA storefronts. Required for custom Next.js frontends.</comment>
+        </field>
+
+        <!-- Webhook Configuration -->
+        <field id="webhook_secret" translate="label" type="obscure" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>Webhook Secret</label>
+          <backend_model>Straumur\Payment\Model\Adminhtml\System\Config\Backend\WebhookSecret</backend_model>
+          <comment>Secret key for webhook HMAC validation (hexadecimal format, minimum 32 characters)</comment>
+        </field>
+        
+        <!-- Advanced Configuration -->
+        <field id="debug" translate="label" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>Debug Mode</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <comment>Enable detailed logging for troubleshooting</comment>
+        </field>
+        <field id="sort_order" translate="label" type="text" sortOrder="41" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Sort Order</label>
+          <comment>Payment method display order in checkout</comment>
+        </field>
+        
+        <!-- Security Configuration -->
+        <field id="webhook_allowed_ips" translate="label" type="text" sortOrder="43" showInDefault="1" showInWebsite="1" showInStore="0">
+          <label>Webhook Allowed IPs</label>
+          <comment>Comma-separated list of IP addresses allowed to send webhooks (supports CIDR notation, e.g., 192.168.1.0/24). Leave empty to allow all IPs.</comment>
+        </field>
+      </group>
+    </section>
+  </system>
+</config>
