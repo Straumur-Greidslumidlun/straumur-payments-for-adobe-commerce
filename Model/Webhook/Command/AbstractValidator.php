@@ -97,7 +97,7 @@ abstract class AbstractValidator implements ValidatorInterface
         $requiredFields = $this->getRequiredFields();
         
         foreach ($requiredFields as $field) {
-            if (!isset($payload[$field])) {
+            if (!isset($payload[$field]) && !isset($payload[ucfirst($field)])) {
                 throw new LocalizedException(__('Missing required field: %1', $field));
             }
         }
