@@ -14,7 +14,7 @@ input StraumurEmbeddedSessionInput {
     culture: String
     manualCapture: Boolean
     expiresAt: String
-    sendItems: Boolean
+    sendItems: Boolean @doc(description: "Deprecated and ignored. The Straumur embedded checkout session does not accept line items; only the cart total is sent. Kept so existing clients that pass it keep working.")
 }
 
 type StraumurEmbeddedSessionStatus {
