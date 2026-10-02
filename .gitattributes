@@ -1,0 +1,14 @@
+# Keep LF in the repository whatever the contributor's OS does.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
+
+# Not part of the module when it is exported or zipped.
+/.github export-ignore
+/.claude export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/phpcs.xml.dist export-ignore
+/CLAUDE.md export-ignore
+/CHANGELOG.md export-ignore

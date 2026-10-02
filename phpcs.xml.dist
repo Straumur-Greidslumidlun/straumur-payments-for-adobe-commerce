@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<ruleset name="Straumur Payment for Magento 2">
+	<description>Magento 2 coding standard as used by the Marketplace review. Errors fail a pull request; warnings are reported while the existing code is worked down with phpcbf.</description>
+
+	<file>.</file>
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>*/.github/*</exclude-pattern>
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+
+	<arg name="colors"/>
+	<arg value="sp"/>
+
+	<rule ref="Magento2"/>
+</ruleset>
