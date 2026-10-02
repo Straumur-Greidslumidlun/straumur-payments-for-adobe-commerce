@@ -1,0 +1,8 @@
+# Composer and IDE artefacts; the module ships without a vendor directory.
+/vendor/
+/composer.lock
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+/build/

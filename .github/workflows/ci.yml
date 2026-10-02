@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php-lint:
+    name: PHP syntax (${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest version composer.json allows, and the newest Magento 2.4.8 supports.
+        php: ['8.2', '8.4']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: none
+      - name: Lint every PHP and template file
+        run: |
+          find . \( -name '*.php' -o -name '*.phtml' \) -not -path './vendor/*' -print0 \
+            | xargs -0 -n1 php -l
+
+  composer:
+    name: composer.json is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+      - run: composer validate --no-check-publish --no-check-lock
+
+  phpcs:
+    name: Magento 2 coding standard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+      - name: Install the Magento 2 coding standard
+        run: |
+          composer global config --no-plugins allow-plugins.dealerdirect/phpcodesniffer-composer-installer true
+          composer global require --no-interaction --no-progress magento/magento-coding-standard:41
+      - name: Run PHPCS (phpcs.xml.dist)
+        # Errors fail the job. Warnings are shown but do not fail until the
+        # existing code has been cleaned up with phpcbf.
+        run: |
+          "$(composer global config bin-dir --absolute --quiet)/phpcs" \
+            --runtime-set ignore_warnings_on_exit 1
+
+  versions:
+    name: Version numbers agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/check-versions.sh
