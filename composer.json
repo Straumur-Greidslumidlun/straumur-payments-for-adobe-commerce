@@ -2,7 +2,7 @@
   "name": "straumur/payment",
   "description": "Straumur payment module for Magento 2",
   "type": "magento2-module",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "require": {
     "php": ">=8.2",
     "magento/framework": "*",
@@ -12,10 +12,35 @@
     "magento/module-graph-ql": "*",
     "magento/module-quote-graph-ql": "*"
   },
+  "require-dev": {
+    "phpunit/phpunit": "12.5.43"
+  },
+  "repositories": [
+    {
+      "type": "composer",
+      "url": "https://mirror.mage-os.org/",
+      "only": ["magento/*"]
+    }
+  ],
+  "config": {
+    "allow-plugins": {
+      "magento/*": false,
+      "laminas/laminas-dependency-plugin": false
+    },
+    "sort-packages": true
+  },
   "autoload": {
     "files": ["registration.php"],
     "psr-4": {
       "Straumur\\Payment\\": ""
     }
+  },
+  "scripts": {
+    "install-test-deps": "@composer update --no-interaction --no-progress --ignore-platform-req=ext-* --with=magento/framework:103.0.9 --with=magento/module-sales:103.0.9 --with=magento/module-payment:100.4.9 --with=magento/module-checkout:100.4.9 --with=magento/module-graph-ql:100.4.9 --with=magento/module-quote-graph-ql:100.4.9",
+    "test": "phpunit"
+  },
+  "scripts-descriptions": {
+    "install-test-deps": "Install the unit test dependencies against Magento 2.4.9 (from the public Mage-OS mirror).",
+    "test": "Run the unit tests."
   }
 }

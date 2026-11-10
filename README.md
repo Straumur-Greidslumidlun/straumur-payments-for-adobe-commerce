@@ -47,6 +47,23 @@ Navigate to **Stores → Configuration → Sales → Payment Methods → Straumu
 - **Webhook Allowed IPs** (`webhook_allowed_ips`): Optional allowlist (individual IPs or CIDR ranges).
 - **Debug Mode** (`debug`): Enable verbose logging (`var/log/straumur_payment.log`).
 
+### Webhook endpoint
+Register `https://<your-store>/straumur/webhook` in the Straumur merchant portal, with the same secret as **Webhook Secret**.
+
+Straumur sends the webhook every payment on the contracts it is subscribed to, not only this store's checkouts: terminal (card-present) payments, payment links and other integrations as well. Straumur treats any answer other than `2xx` as the endpoint failing, so the endpoint answers:
+
+| Request | Response |
+|---|---|
+| Valid signature, for a Straumur order of this store | `200 {"message":"Processed."}` |
+| Valid signature, any other payment | `200 {"message":"Ignored: not an order of this shop.","ignored":true}`; no order is touched |
+| Valid signature, event type the module does not handle | `200 {"message":"Ignored: unsupported event type.","ignored":true}` |
+| Valid signature, processing failed | `200 {"message":"Received; processing failed and was logged.","processed":false}`; details in `var/log/straumur_payment.log` |
+| Missing or wrong signature, or no Webhook Secret configured | `403` |
+| Source IP outside **Webhook Allowed IPs** | `403` |
+| Body that is not a JSON object | `400` |
+
+An event is applied to an order only when its merchant reference is exactly the order's increment ID and the order was paid with Straumur. Webhook logs contain only the event type, success flag, amount, currency and the shape of the reference, never the payload itself.
+
 ### Headless Mode
 - **Enable Headless (Quote Session) Mode** (`use_quote_session`): Gate for headless integrations; required for GraphQL embedded sessions.
 - Configure headless storefront return URLs to accept `sessionToken` callbacks for both success and cancel flows.

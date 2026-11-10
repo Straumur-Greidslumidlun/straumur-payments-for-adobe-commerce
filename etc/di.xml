@@ -143,8 +143,15 @@
     <preference for="Straumur\Payment\Api\Security\HmacValidatorInterface" type="Straumur\Payment\Model\Security\HmacValidator"/>
 
     <!-- Webhook Router with Processors -->
+    <type name="Straumur\Payment\Model\Webhook\OrderResolver">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
     <type name="Straumur\Payment\Model\Webhook\Router">
         <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
             <argument name="processors" xsi:type="array">
                 <item name="authorization" xsi:type="object">Straumur\Payment\Model\Webhook\Command\AuthorizationProcessor</item>
                 <item name="capture" xsi:type="object">Straumur\Payment\Model\Webhook\Command\CaptureProcessor</item>
@@ -221,6 +228,7 @@
     <!-- Enhanced Webhook Processors with New Services -->
     <type name="Straumur\Payment\Model\Webhook\Command\CaptureProcessor">
         <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
             <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
             <argument name="transactionValidator" xsi:type="object">Straumur\Payment\Model\Service\TransactionValidator</argument>
         </arguments>
@@ -228,12 +236,14 @@
     
     <type name="Straumur\Payment\Model\Webhook\Command\VoidProcessor">
         <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
             <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
         </arguments>
     </type>
 
     <type name="Straumur\Payment\Model\Webhook\Command\RefundProcessor">
         <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
             <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
             <argument name="straumurHelper" xsi:type="object">Straumur\Payment\Helper\Data</argument>
         </arguments>
@@ -241,6 +251,7 @@
 
     <type name="Straumur\Payment\Model\Webhook\Command\AdjustmentProcessor">
         <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
             <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
             <argument name="transactionValidator" xsi:type="object">Straumur\Payment\Model\Service\TransactionValidator</argument>
         </arguments>
@@ -248,8 +259,27 @@
     
     <type name="Straumur\Payment\Model\Webhook\Command\AuthorizationProcessor">
         <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
             <argument name="transactionCalculator" xsi:type="object">Straumur\Payment\Model\Service\TransactionCalculator</argument>
             <argument name="paymentStateManager" xsi:type="object">Straumur\Payment\Model\Service\PaymentStateManager</argument>
+        </arguments>
+    </type>
+
+    <type name="Straumur\Payment\Model\Webhook\Command\TokenizationProcessor">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
+    <type name="Straumur\Payment\Model\Webhook\Command\PaymentValidator">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
+    <type name="Straumur\Payment\Model\Security\HmacValidator">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
         </arguments>
     </type>
 

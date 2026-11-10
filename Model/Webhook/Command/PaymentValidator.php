@@ -3,20 +3,9 @@ declare(strict_types=1);
 
 namespace Straumur\Payment\Model\Webhook\Command;
 
+/**
+ * Signature validator for Straumur payment webhooks.
+ */
 class PaymentValidator extends AbstractValidator
 {
-    /**
-     * @inheritDoc
-     */
-    protected function getRequiredFields(): array
-    {
-        return [
-            'checkoutReference',
-            'payfacReference',
-            'merchantReference',
-            'amount',
-            'currency',
-            'success'
-        ];
-    }
 }
