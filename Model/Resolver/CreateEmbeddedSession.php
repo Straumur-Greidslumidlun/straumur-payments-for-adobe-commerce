@@ -70,8 +70,7 @@ class CreateEmbeddedSession implements ResolverInterface
         $options = [
             'culture' => $input['culture'] ?? null,
             'expiresAt' => $input['expiresAt'] ?? null,
-            'isManualCapture' => $input['manualCapture'] ?? null,
-            'sendItems' => $input['sendItems'] ?? null
+            'isManualCapture' => $input['manualCapture'] ?? null
         ];
 
         $result = $this->quoteSessionCreator->create(

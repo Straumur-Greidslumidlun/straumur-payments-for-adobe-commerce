@@ -115,12 +115,9 @@ class QuoteSessionCreator
             'expiresAt' => $options['expiresAt'] ?? $this->helper->getSessionExpiration($storeId)
         ];
 
-        if (!empty($options['sendItems']) || $this->helper->shouldSendItems($storeId)) {
-            $items = $this->helper->getQuoteItems($quote, $storeId);
-            if (!empty($items)) {
-                $sessionRequest['items'] = $items;
-            }
-        }
+        // Do not add 'items' here. Unlike the hosted checkout endpoint, embeddedcheckout/session
+        // accepts no line items and rejects any unknown field with error 1006, which would fail
+        // every headless session. The "Send Order Items" setting applies to hosted checkout only.
 
         try {
             $response = $this->straumurApi->createEmbeddedSession($sessionRequest);

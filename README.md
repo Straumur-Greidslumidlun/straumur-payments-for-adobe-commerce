@@ -39,7 +39,7 @@ Navigate to **Stores → Configuration → Sales → Payment Methods → Straumu
 - **Enable Manual Capture** (`manual_capture`): Toggle between authorize-only and auto-capture.
 - **Session Timeout** (`session_timeout`): Minutes before a redirect or embedded session expires (5–1440, default 60).
 - **Language / Culture** (`culture`): Hosted checkout locale.
-- **Send Order Items** (`send_items`): Control whether individual line items are transmitted to Straumur.
+- **Send Order Items** (`send_items`): Control whether individual line items are transmitted to Straumur. Applies to the hosted redirect flow only; embedded (headless) sessions always send the cart total without line items.
 - **New Order Status** (`order_status`): Pending status applied before Straumur confirms payment.
 
 ### Webhook & Security
@@ -75,7 +75,6 @@ Headless mode lets PWAs and custom frontends embed Straumur’s web component wi
          cartId: $cartId
          origin: "https://checkout.example.com"
          threeDsReturnUrl: "https://checkout.example.com/straumur/3ds-return"
-         sendItems: true
        }
      ) {
        sessionId
@@ -85,7 +84,7 @@ Headless mode lets PWAs and custom frontends embed Straumur’s web component wi
      }
    }
    ```
-3. `QuoteSessionCreator` validates the quote, reserves an order reference, formats totals (optionally including line items), and calls Straumur’s `embeddedcheckout/session` endpoint.
+3. `QuoteSessionCreator` validates the quote, reserves an order reference, formats the cart total, and calls Straumur’s `embeddedcheckout/session` endpoint. Line items are never sent for embedded sessions; that endpoint does not accept them.
 4. Mount Straumur’s web component using the returned `sessionId`. Keep both the `checkoutReference` and `sessionToken` so you can reconcile the order later or query status.
 5. The component drives the payment, including any 3-D Secure challenges via the `threeDsReturnUrl` route you expose in your headless app. Stay on the headless storefront; do not redirect back to Magento.
 6. Inform the shopper of the outcome once Straumur confirms payment. Magento receives the authoritative result via webhook, and you can optionally poll status before that webhook arrives. Secure return URLs (`straumur/payment/return` and `straumur/payment/cancel`) remain available if you prefer a Magento-hosted success page, but headless storefronts typically stay within their own UI.

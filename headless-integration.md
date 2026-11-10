@@ -56,14 +56,12 @@ mutation CreateStraumurSession(
   $cartId: String!
   $origin: String!
   $threeDsReturnUrl: String!
-  $sendItems: Boolean
 ) {
   createStraumurEmbeddedSession(
     input: {
       cartId: $cartId
       origin: $origin
       threeDsReturnUrl: $threeDsReturnUrl
-      sendItems: $sendItems
       manualCapture: false           # optional overrides
       culture: "en"
     }
@@ -99,6 +97,7 @@ mutation CreateStraumurSession(
 - `threeDsReturnUrl`: HTTPS route within your frontend that Straumur uses to complete 3-D Secure flows.
 - `sessionToken`: Opaque identifier managed by Magento’s `SessionManager`. Keep it for status polling or secure return flows.
 - `expiresAt`: ISO timestamp when Straumur considers the session invalid (maximum 24 hours).
+- `sendItems`: Deprecated and ignored. Embedded sessions carry only the cart total; the Straumur `embeddedcheckout/session` endpoint does not accept line items. The **Send Order Items** admin setting affects the hosted redirect flow only.
 
 ### Frontend: Mount the Straumur Web Component
 Install once per project:
