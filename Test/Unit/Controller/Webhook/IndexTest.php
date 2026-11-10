@@ -13,6 +13,7 @@ use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\Data\OrderPaymentInterface;
 use Magento\Sales\Api\Data\OrderSearchResultInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Straumur\Payment\Api\Webhook\RouterInterface;
@@ -313,11 +314,36 @@ class IndexTest extends TestCase
         $this->assertSame(400, $this->statusCode);
     }
 
-    public function testJsonThatIsNotAnObjectIsBadRequest(): void
+    /**
+     * @return array
+     */
+    public static function jsonThatIsNotAnObject(): array
     {
-        $this->post('"742"');
+        return [
+            'string' => ['"742"'],
+            'number' => ['742'],
+            'empty array' => ['[]'],
+            'array of scalars' => ['[1]'],
+            'array of objects' => ['[{"merchantReference":"000000123"}]'],
+        ];
+    }
+
+    #[DataProvider('jsonThatIsNotAnObject')]
+    public function testJsonThatIsNotAnObjectIsBadRequest(string $body): void
+    {
+        $this->router = $this->createMock(RouterInterface::class);
+        $this->router->expects($this->never())->method('route');
+
+        $this->post($body);
 
         $this->assertSame(400, $this->statusCode);
+    }
+
+    public function testEmptyJsonObjectIsCheckedForSignature(): void
+    {
+        $this->post(' {}');
+
+        $this->assertSame(403, $this->statusCode);
     }
 
     public function testEmptyBodyIsBadRequest(): void

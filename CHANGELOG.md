@@ -12,7 +12,7 @@ Straumur sends a merchant's webhook every payment on the contracts it is subscri
 - Fixed: an event is only applied to an order whose increment ID is exactly the merchant reference and that was paid with Straumur. Orders paid with another method, references that only match because of database case or trailing-space rules, and increment IDs shared by several stores (resolved by checkout reference) are no longer touched. A checkout reference that differs from the order's session is logged as a warning.
 - Fixed: a declined authorization no longer cancels an order that is already authorized or paid.
 - Fixed: the signature is computed from PascalCase payloads too, and odd-length webhook secrets are padded like Straumur does.
-- Changed: webhook logs contain only allow-listed fields (event type, success, amount, currency, reference shape), no longer the raw payload, headers or signature.
+- Changed: webhook logs no longer contain the raw payload, headers or signature. Ignored and rejected webhooks log only allow-listed fields (event type, success, amount, currency, reference shape); events applied to an order also log the order number, Straumur payment reference and failure reason.
 - Fixed: embedded (headless) checkout sessions no longer send line items, which the Straumur API rejects (#3).
 - Changed: `Api\Webhook\RouterInterface::route()` and `Api\Webhook\ProcessorInterface` take the resolved order instead of headers.
 - Added: unit tests (`composer install-test-deps && composer test`) and a CI job that runs them.

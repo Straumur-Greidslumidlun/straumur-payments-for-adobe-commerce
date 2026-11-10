@@ -195,7 +195,8 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
 
         $payload = json_decode($rawPayload, true);
 
-        if (!is_array($payload)) {
+        // json_decode() returns an array for JSON arrays too; only an object (including "{}") is a payload.
+        if (!is_array($payload) || ltrim($rawPayload)[0] !== '{') {
             $this->logger->warning('Straumur webhook rejected: body is not a JSON object', [
                 'json_error' => json_last_error_msg(),
             ]);
