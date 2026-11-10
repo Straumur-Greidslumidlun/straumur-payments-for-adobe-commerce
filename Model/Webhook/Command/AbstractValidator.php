@@ -153,6 +153,7 @@ abstract class AbstractValidator implements ValidatorInterface
     {
         // Straumur sends HMAC signature in payload body as 'hmacSignature' field
         return trim((string) ($payload['hmacSignature'] ?? $payload['HmacSignature'] ?? ''));
+    }
 
     /**
      * Get webhook secret from configuration
