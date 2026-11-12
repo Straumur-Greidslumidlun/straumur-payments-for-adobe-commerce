@@ -64,27 +64,28 @@ class OrderResolverTest extends TestCase
     }
 
     /**
-     * Order mock with the given increment ID, payment method and stored checkout reference.
+     * Order mock with the given increment ID, payment method and stored references.
      *
      * @param string $incrementId
      * @param string|null $method null for an order without a payment
      * @param string|null $storedCheckoutReference
+     * @param string|null $storedAuthorizationReference
      * @return OrderInterface
      */
     private function order(
         string $incrementId,
         ?string $method = 'straumur_payment',
-        ?string $storedCheckoutReference = null
+        ?string $storedCheckoutReference = null,
+        ?string $storedAuthorizationReference = null
     ): OrderInterface {
         $payment = null;
         if ($method !== null) {
             $payment = self::createStub(OrderPaymentInterface::class);
             $payment->method('getMethod')->willReturn($method);
-            $payment->method('getAdditionalInformation')->willReturn(
-                $storedCheckoutReference === null
-                    ? []
-                    : [OrderResolver::STORED_CHECKOUT_REFERENCE => $storedCheckoutReference]
-            );
+            $payment->method('getAdditionalInformation')->willReturn(array_filter([
+                OrderResolver::STORED_CHECKOUT_REFERENCE => $storedCheckoutReference,
+                OrderResolver::STORED_AUTHORIZATION_REFERENCE => $storedAuthorizationReference,
+            ], 'is_string'));
         }
 
         $order = self::createStub(OrderInterface::class);
@@ -241,14 +242,92 @@ class OrderResolverTest extends TestCase
         $this->assertCount(1, $this->logger->messages('warning'));
     }
 
-    public function testNoWarningWhenEitherCheckoutReferenceIsMissing(): void
+    public function testNoWarningWhenTheOrderStoredNoCheckoutReference(): void
     {
         $this->ordersInDatabase = [$this->order('000000123', 'straumur_payment', null)];
         $this->resolver->resolve($this->payload('000000123', 'chk-1'));
 
-        $this->ordersInDatabase = [$this->order('000000123', 'straumur_payment', 'chk-1')];
-        $this->resolver->resolve($this->payload('000000123', null));
-
         $this->assertSame([], $this->logger->messages('warning'));
+    }
+
+    public function testAuthorizationWithoutCheckoutReferenceIsLoggedButStillProcessed(): void
+    {
+        // A terminal sale or payment link whose reference is a Straumur order's number: the soft check applies
+        // it, and this warning is how it shows up.
+        $order = $this->order('000000123', 'straumur_payment', 'chk-1');
+        $this->ordersInDatabase = [$order];
+
+        $this->assertSame($order, $this->resolver->resolve($this->payload('000000123', null)));
+        $this->assertCount(1, $this->logger->messages('warning'));
+    }
+
+    /**
+     * Payload of a follow-up event (Capture, Refund, Adjustment): its checkoutReference is that operation's own.
+     *
+     * @param string $eventType
+     * @param string|null $originalPayfacReference
+     * @return array
+     */
+    private function followUpPayload(string $eventType, ?string $originalPayfacReference): array
+    {
+        $payload = $this->payload('000000123', 'chk-of-the-' . strtolower($eventType));
+        $payload['payfacReference'] = 'PF-' . $eventType;
+        $payload['additionalData'] = ['eventType' => $eventType];
+        if ($originalPayfacReference !== null) {
+            $payload['additionalData']['originalPayfacReference'] = $originalPayfacReference;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @return array
+     */
+    public static function followUpEvents(): array
+    {
+        return [['Capture'], ['Refund'], ['Adjustment']];
+    }
+
+    #[DataProvider('followUpEvents')]
+    public function testFollowUpEventIsNotWarnedAboutItsOwnCheckoutReference(string $eventType): void
+    {
+        $order = $this->order('000000123', 'straumur_payment', 'chk-a', 'PF-auth-a');
+        $this->ordersInDatabase = [$order];
+
+        $this->assertSame($order, $this->resolver->resolve($this->followUpPayload($eventType, 'PF-auth-a')));
+        $this->assertSame([], $this->logger->messages('warning'));
+    }
+
+    #[DataProvider('followUpEvents')]
+    public function testFollowUpEventInTwoStoresIsResolvedByOriginalPayfacReference(string $eventType): void
+    {
+        $storeA = $this->order('000000123', 'straumur_payment', 'chk-a', 'PF-auth-a');
+        $storeB = $this->order('000000123', 'straumur_payment', 'chk-b', 'PF-auth-b');
+        $this->ordersInDatabase = [$storeA, $storeB];
+
+        $this->assertSame($storeB, $this->resolver->resolve($this->followUpPayload($eventType, 'PF-auth-b')));
+    }
+
+    public function testFollowUpEventInTwoStoresWithoutOriginalPayfacReferenceIsLeftAlone(): void
+    {
+        $this->ordersInDatabase = [
+            $this->order('000000123', 'straumur_payment', 'chk-a', 'PF-auth-a'),
+            $this->order('000000123', 'straumur_payment', 'chk-b', 'PF-auth-b'),
+        ];
+
+        $this->assertNull($this->resolver->resolve($this->followUpPayload('Capture', null)));
+        $this->assertCount(1, $this->logger->messages('warning'));
+    }
+
+    public function testFollowUpEventInTwoStoresIsNotMatchedByCheckoutReference(): void
+    {
+        // Straumur sends the capture's own checkoutReference; even when it equals a stored session reference,
+        // it does not identify the order for a follow-up event.
+        $this->ordersInDatabase = [
+            $this->order('000000123', 'straumur_payment', 'chk-of-the-capture', 'PF-auth-a'),
+            $this->order('000000123', 'straumur_payment', 'chk-b', 'PF-auth-b'),
+        ];
+
+        $this->assertNull($this->resolver->resolve($this->followUpPayload('Capture', 'PF-unknown')));
     }
 }

@@ -22,9 +22,21 @@ class AuthorizationProcessorTest extends TestCase
      */
     private $orderRepository;
 
+    /**
+     * @var TransactionCalculator Stub by default; a mock in tests that set expectations
+     */
+    private $transactionCalculator;
+
+    /**
+     * @var PaymentStateManager Stub by default; a mock in tests that set expectations
+     */
+    private $paymentStateManager;
+
     protected function setUp(): void
     {
         $this->orderRepository = self::createStub(OrderRepositoryInterface::class);
+        $this->transactionCalculator = self::createStub(TransactionCalculator::class);
+        $this->paymentStateManager = self::createStub(PaymentStateManager::class);
     }
 
     /**
@@ -40,8 +52,8 @@ class AuthorizationProcessorTest extends TestCase
             new RecordingLogger(),
             self::createStub(OrderSender::class),
             self::createStub(StraumurHelper::class),
-            self::createStub(TransactionCalculator::class),
-            self::createStub(PaymentStateManager::class)
+            $this->transactionCalculator,
+            $this->paymentStateManager
         );
     }
 
@@ -132,6 +144,76 @@ class AuthorizationProcessorTest extends TestCase
         $result = $this->processor()->process($payload, $order);
 
         $this->assertSame('failed', $result['status']);
+    }
+
+    /**
+     * @return array
+     */
+    private static function approved(): array
+    {
+        $payload = self::declined();
+        $payload['success'] = 'true';
+        $payload['additionalData']['authCode'] = 'A1';
+
+        return $payload;
+    }
+
+    public function testApprovedPaymentIsRecordedAndMarksTheOrderAuthorized(): void
+    {
+        $order = $this->order(Order::STATE_NEW, false, false);
+        $this->transactionCalculator = $this->createMock(TransactionCalculator::class);
+        $this->transactionCalculator->expects($this->once())->method('addTransactionToHistory')->with(
+            $this->anything(),
+            'authorizations',
+            $this->callback(function (array $entry): bool {
+                return $entry['reference'] === 'PF-9' && $entry['amount'] === 12990.0 && $entry['success'] === true;
+            })
+        );
+        $this->paymentStateManager = $this->createMock(PaymentStateManager::class);
+        $this->paymentStateManager->expects($this->once())->method('markPaymentAuthorized')
+            ->with($order, 'PF-9', 12990.0, ['eventType' => 'Authorization', 'authCode' => 'A1'])
+            ->willReturn(true);
+
+        $result = $this->processor()->process(self::approved(), $order);
+
+        $this->assertSame('success', $result['status']);
+        $this->assertSame('PF-9', $result['transaction_id']);
+        $this->assertSame(12990.0, $result['amount']);
+    }
+
+    public function testDuplicateApprovedWebhookIsNotRecordedTwice(): void
+    {
+        $order = $this->order(Order::STATE_PROCESSING, true, false);
+        $this->transactionCalculator = $this->createMock(TransactionCalculator::class);
+        $this->transactionCalculator->expects($this->never())->method('addTransactionToHistory');
+        $this->paymentStateManager = $this->createMock(PaymentStateManager::class);
+        $this->paymentStateManager->expects($this->never())->method('markPaymentAuthorized');
+
+        $result = $this->processor()->process(self::approved(), $order);
+
+        $this->assertSame('success', $result['status']);
+        $this->assertSame('Duplicate authorization webhook ignored', $result['note']);
+    }
+
+    /**
+     * @return array
+     */
+    public static function statesThatCannotBeAuthorized(): array
+    {
+        return [[Order::STATE_CANCELED], [Order::STATE_COMPLETE], [Order::STATE_CLOSED], [Order::STATE_HOLDED]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('statesThatCannotBeAuthorized')]
+    public function testApprovedPaymentForOrderThatCannotBeAuthorizedFails(string $state): void
+    {
+        // The controller logs this and answers 200 {"processed":false}; nothing is recorded on the order.
+        $order = $this->order($state, false, false);
+        $this->paymentStateManager = $this->createMock(PaymentStateManager::class);
+        $this->paymentStateManager->expects($this->never())->method('markPaymentAuthorized');
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->processor()->process(self::approved(), $order);
     }
 
     public function testCanProcessOnlyAuthorizationEvents(): void

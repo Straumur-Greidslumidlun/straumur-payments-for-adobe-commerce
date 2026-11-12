@@ -62,7 +62,7 @@ Straumur sends the webhook every payment on the contracts it is subscribed to, n
 | Source IP outside **Webhook Allowed IPs** | `403` |
 | Body that is not a JSON object | `400` |
 
-An event is applied to an order only when its merchant reference is exactly the order's increment ID and the order was paid with Straumur. The raw payload, headers and signature are never logged. Ignored and rejected webhooks log only the event type, success flag, amount, currency and the shape of the reference. Events applied to an order of this store also log the order number, the Straumur payment reference and, for failures, the reason Straumur gives; processing errors log the exception message.
+An event is applied to an order only when its merchant reference is exactly the order's increment ID and the order was paid with Straumur. In headless mode a payment can complete before the order is placed; its webhook then finds no order, so the module asks Straumur for the session's status when the order is placed and applies the payment then. The raw payload, headers and signature are never logged. Ignored and rejected webhooks log only the event type, success flag, amount, currency and the shape of the reference. Events applied to an order of this store also log the order number, the Straumur payment reference and, for failures, the reason Straumur gives; processing errors log the exception message.
 
 ### Headless Mode
 - **Enable Headless (Quote Session) Mode** (`use_quote_session`): Gate for headless integrations; required for GraphQL embedded sessions.

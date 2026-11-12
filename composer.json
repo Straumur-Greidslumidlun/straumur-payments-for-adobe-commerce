@@ -10,7 +10,8 @@
     "magento/module-checkout": "*",
     "magento/module-sales": "*",
     "magento/module-graph-ql": "*",
-    "magento/module-quote-graph-ql": "*"
+    "magento/module-quote-graph-ql": "*",
+    "magento/module-vault": "*"
   },
   "require-dev": {
     "phpunit/phpunit": "12.5.43"
@@ -36,7 +37,7 @@
     }
   },
   "scripts": {
-    "install-test-deps": "@composer update --no-interaction --no-progress --ignore-platform-req=ext-* --with=magento/framework:103.0.9 --with=magento/module-sales:103.0.9 --with=magento/module-payment:100.4.9 --with=magento/module-checkout:100.4.9 --with=magento/module-graph-ql:100.4.9 --with=magento/module-quote-graph-ql:100.4.9",
+    "install-test-deps": "@composer update --no-interaction --no-progress --ignore-platform-req=ext-* --with=magento/framework:103.0.9 --with=magento/module-sales:103.0.9 --with=magento/module-payment:100.4.9 --with=magento/module-checkout:100.4.9 --with=magento/module-graph-ql:100.4.9 --with=magento/module-quote-graph-ql:100.4.9 --with=magento/module-vault:101.2.9",
     "test": "phpunit"
   },
   "scripts-descriptions": {

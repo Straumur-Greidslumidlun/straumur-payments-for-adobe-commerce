@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Straumur\Payment\Model\Webhook\Command;
 
 use Magento\Sales\Api\Data\OrderInterface;
-use Magento\Vault\Api\Data\PaymentTokenInterface;
 use Magento\Vault\Api\Data\PaymentTokenFactoryInterface;
 use Magento\Vault\Api\PaymentTokenRepositoryInterface;
 use Straumur\Payment\Model\Webhook\WebhookPayload;
@@ -53,7 +52,9 @@ class TokenizationProcessor extends AbstractProcessor
             $payment = $order->getPayment();
             
             try {
-                $paymentToken = $this->paymentTokenFactory->create(PaymentTokenInterface::TYPE_CREDIT_CARD);
+                $paymentToken = $this->paymentTokenFactory->create(
+                    PaymentTokenFactoryInterface::TOKEN_TYPE_CREDIT_CARD
+                );
                 $paymentToken->setCustomerId($order->getCustomerId());
                 $paymentToken->setPaymentMethodCode('straumur_payment');
                 $paymentToken->setGatewayToken($payfacReference);

@@ -15,7 +15,6 @@ use Magento\Sales\Api\Data\OrderSearchResultInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Psr\Log\NullLogger;
 use Straumur\Payment\Api\Webhook\RouterInterface;
 use Straumur\Payment\Controller\Webhook\Index;
 use Straumur\Payment\Helper\Data as StraumurHelper;
@@ -113,7 +112,7 @@ class IndexTest extends TestCase
             $this->logger,
             $remoteAddress,
             $helper,
-            new PaymentValidator(HmacValidatorTest::createValidator(), $helper, new NullLogger()),
+            new PaymentValidator(HmacValidatorTest::createValidator(), $helper, $this->logger),
             $this->orderResolver()
         );
 
@@ -138,7 +137,7 @@ class IndexTest extends TestCase
             return $result;
         });
 
-        return new OrderResolver($repository, $builder, new NullLogger());
+        return new OrderResolver($repository, $builder, $this->logger);
     }
 
     /**
@@ -207,8 +206,32 @@ class IndexTest extends TestCase
         $this->assertSame(['message' => Index::MESSAGE_IGNORED_FOREIGN, 'ignored' => true], $this->body);
     }
 
-    public function testIgnoredEventIsLoggedWithAllowListedFieldsOnly(): void
+    /**
+     * Webhooks that are not applied to an order, the log record each must write, and the HTTP status.
+     *
+     * @return array
+     */
+    public static function webhooksNotAppliedToAnOrder(): array
     {
+        return [
+            'foreign payment' => ['foreign', 'info', 'Straumur webhook ignored: not an order of this shop.', 200],
+            'wrong signature' => [
+                'bad_signature',
+                'warning',
+                'Straumur webhook rejected: ' . PaymentValidator::ERROR_INVALID_SIGNATURE,
+                403,
+            ],
+            'processing error' => ['error', 'error', 'Straumur webhook processing failed', 200],
+        ];
+    }
+
+    #[DataProvider('webhooksNotAppliedToAnOrder')]
+    public function testWebhookIsLoggedWithAllowListedFieldsOnly(
+        string $scenario,
+        string $level,
+        string $expectedMessage,
+        int $expectedStatus
+    ): void {
         $payload = HmacValidatorTest::orderPayload();
         $payload['additionalData']['shopperInformation'] = [
             'fullName' => 'Jon Jonsson',
@@ -217,20 +240,24 @@ class IndexTest extends TestCase
         $payload['additionalData']['cardSummary'] = '1234';
         // The signature stays valid: additionalData is not part of it.
 
+        $mustNotBeLogged = ['Jon Jonsson', 'jon@example.com', 'PF-1', 'c1a2b3', '1234'];
+        if ($scenario === 'bad_signature') {
+            $payload['amount'] = '1';
+        }
+        if ($scenario === 'error') {
+            $this->ordersInDatabase = [$this->shopOrder()];
+            $this->router->method('route')->willThrowException(new \RuntimeException('Order cannot be invoiced'));
+        } else {
+            // Nothing that reached the shop identifies the payment in the log, not even the reference.
+            $mustNotBeLogged[] = '000000123';
+        }
+
         $this->post(self::json($payload));
 
-        $this->assertSame(200, $this->statusCode);
+        $this->assertSame($expectedStatus, $this->statusCode);
+        $this->assertContains($expectedMessage, $this->logger->messages($level));
         $logged = $this->logger->dump();
-        $mustNotBeLogged = [
-            'Jon Jonsson',
-            'jon@example.com',
-            '000000123',
-            'PF-1',
-            'c1a2b3',
-            '1234',
-            HmacValidatorTest::ORDER_SIGNATURE,
-        ];
-        foreach ($mustNotBeLogged as $value) {
+        foreach (array_merge($mustNotBeLogged, [HmacValidatorTest::ORDER_SIGNATURE]) as $value) {
             $this->assertStringNotContainsString($value, $logged);
         }
     }

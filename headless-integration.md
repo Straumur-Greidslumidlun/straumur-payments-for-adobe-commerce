@@ -169,6 +169,7 @@ Do not mutate Magento order state from the frontend; webhooks remain the source 
 - Straumur sends HMAC-signed JSON payloads to `/straumur/webhook/index`.
 - Magento validates signatures using the configured secret and processes authorization, capture, cancel, and refund events.
 - Orders transition from `pending_payment` to `processing` or `complete` when the corresponding webhook succeeds.
+- You can place the order before or after the shopper pays. If the payment completes first, its webhook arrives before the order exists and is acknowledged without being applied; when the order is placed, Magento asks Straumur for the session's status and authorizes the order if it was paid.
 - Ensure the webhook endpoint is publicly reachable and that retries are idempotent (handled by `Model/Webhook/Router`).
 
 ### Error Handling & Troubleshooting

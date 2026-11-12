@@ -149,6 +149,12 @@
         </arguments>
     </type>
 
+    <type name="Straumur\Payment\Model\Service\EmbeddedPaymentReconciler">
+        <arguments>
+            <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
+        </arguments>
+    </type>
+
     <type name="Straumur\Payment\Model\Webhook\Router">
         <arguments>
             <argument name="logger" xsi:type="object">StraumurPaymentLogger</argument>
