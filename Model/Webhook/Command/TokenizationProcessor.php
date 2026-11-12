@@ -4,9 +4,9 @@ declare(strict_types=1);
 namespace Straumur\Payment\Model\Webhook\Command;
 
 use Magento\Sales\Api\Data\OrderInterface;
-use Magento\Vault\Api\Data\PaymentTokenInterface;
 use Magento\Vault\Api\Data\PaymentTokenFactoryInterface;
 use Magento\Vault\Api\PaymentTokenRepositoryInterface;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
 class TokenizationProcessor extends AbstractProcessor
 {
@@ -21,24 +21,20 @@ class TokenizationProcessor extends AbstractProcessor
     private $paymentTokenRepository;
 
     /**
-     * @param \Straumur\Payment\Api\Webhook\ValidatorInterface $validator
      * @param \Straumur\Payment\Gateway\Config\Config $gatewayConfig
      * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
-     * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      * @param \Psr\Log\LoggerInterface $logger
      * @param PaymentTokenFactoryInterface $paymentTokenFactory
      * @param PaymentTokenRepositoryInterface $paymentTokenRepository
      */
     public function __construct(
-        \Straumur\Payment\Api\Webhook\ValidatorInterface $validator,
         \Straumur\Payment\Gateway\Config\Config $gatewayConfig,
         \Magento\Sales\Api\OrderRepositoryInterface $orderRepository,
-        \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder,
         \Psr\Log\LoggerInterface $logger,
         PaymentTokenFactoryInterface $paymentTokenFactory,
         PaymentTokenRepositoryInterface $paymentTokenRepository
     ) {
-        parent::__construct($validator, $gatewayConfig, $orderRepository, $searchCriteriaBuilder, $logger);
+        parent::__construct($gatewayConfig, $orderRepository, $logger);
         $this->paymentTokenFactory = $paymentTokenFactory;
         $this->paymentTokenRepository = $paymentTokenRepository;
     }
@@ -48,16 +44,17 @@ class TokenizationProcessor extends AbstractProcessor
      */
     protected function processWebhook(array $payload, OrderInterface $order): array
     {
-        $successValue = $payload['success'] ?? $payload['Success'] ?? 'false';
-        $success = ($successValue === 'true' || $successValue === true);
-        $payfacReference = (string) ($payload['payfacReference'] ?? $payload['PayfacReference'] ?? '');
-        $checkoutReference = (string) ($payload['checkoutReference'] ?? $payload['CheckoutReference'] ?? '');
+        $success = $this->isSuccess($payload);
+        $payfacReference = WebhookPayload::string($payload, 'payfacReference');
+        $checkoutReference = WebhookPayload::string($payload, 'checkoutReference');
         
         if ($success && $order->getCustomerId()) {
             $payment = $order->getPayment();
             
             try {
-                $paymentToken = $this->paymentTokenFactory->create(PaymentTokenInterface::TYPE_CREDIT_CARD);
+                $paymentToken = $this->paymentTokenFactory->create(
+                    PaymentTokenFactoryInterface::TOKEN_TYPE_CREDIT_CARD
+                );
                 $paymentToken->setCustomerId($order->getCustomerId());
                 $paymentToken->setPaymentMethodCode('straumur_payment');
                 $paymentToken->setGatewayToken($payfacReference);

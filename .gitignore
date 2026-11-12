@@ -6,3 +6,5 @@
 .DS_Store
 Thumbs.db
 /build/
+/.phpunit.result.cache
+/.phpunit.cache/

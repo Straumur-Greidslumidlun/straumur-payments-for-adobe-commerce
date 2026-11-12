@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
+    <!-- Headless checkout: apply a payment completed before the order was placed (its webhook found no order). -->
+    <event name="sales_model_service_quote_submit_success">
+        <observer name="straumur_reconcile_embedded_payment"
+                  instance="Straumur\Payment\Observer\ReconcileEmbeddedPaymentObserver"/>
+    </event>
+</config>

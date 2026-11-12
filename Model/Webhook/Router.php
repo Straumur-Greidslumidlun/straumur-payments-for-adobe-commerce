@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 namespace Straumur\Payment\Model\Webhook;
 
-use Straumur\Payment\Api\Webhook\RouterInterface;
-use Straumur\Payment\Api\Webhook\ProcessorInterface;
-use Magento\Framework\Exception\LocalizedException;
+use Magento\Sales\Api\Data\OrderInterface;
 use Psr\Log\LoggerInterface;
+use Straumur\Payment\Api\Webhook\ProcessorInterface;
+use Straumur\Payment\Api\Webhook\RouterInterface;
 
 class Router implements RouterInterface
 {
@@ -35,18 +35,20 @@ class Router implements RouterInterface
     /**
      * @inheritDoc
      */
-    public function route(array $payload, array $headers = []): array
+    public function route(array $payload, OrderInterface $order): array
     {
-        $this->logger->info('Routing webhook', ['payload' => $payload]);
-
         foreach ($this->processors as $processor) {
-            if ($processor->canProcess($payload)) {
-                $this->logger->info('Found processor', ['processor' => get_class($processor)]);
-                return $processor->process($payload, $headers);
+            if ($processor->canProcess($payload, $order)) {
+                return $processor->process($payload, $order);
             }
         }
 
-        throw new LocalizedException(__('No processor found for webhook payload'));
+        $this->logger->info(
+            'Straumur webhook event type has no processor; ignored.',
+            WebhookPayload::logContext($payload) + ['order_increment_id' => $order->getIncrementId()]
+        );
+
+        return ['status' => 'ignored', 'reason' => 'unsupported_event'];
     }
 
     /**

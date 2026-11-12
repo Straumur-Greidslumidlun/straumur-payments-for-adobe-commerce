@@ -6,6 +6,7 @@ namespace Straumur\Payment\Model\Webhook\Command;
 use Magento\Sales\Api\Data\OrderInterface;
 use Straumur\Payment\Model\Service\TransactionCalculator;
 use Straumur\Payment\Helper\Data as StraumurHelper;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
 class RefundProcessor extends AbstractProcessor
 {
@@ -20,24 +21,20 @@ class RefundProcessor extends AbstractProcessor
     private $straumurHelper;
 
     /**
-     * @param \Straumur\Payment\Api\Webhook\ValidatorInterface $validator
      * @param \Straumur\Payment\Gateway\Config\Config $gatewayConfig
      * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
-     * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      * @param \Psr\Log\LoggerInterface $logger
      * @param TransactionCalculator $transactionCalculator
      * @param StraumurHelper $straumurHelper
      */
     public function __construct(
-        \Straumur\Payment\Api\Webhook\ValidatorInterface $validator,
         \Straumur\Payment\Gateway\Config\Config $gatewayConfig,
         \Magento\Sales\Api\OrderRepositoryInterface $orderRepository,
-        \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder,
         \Psr\Log\LoggerInterface $logger,
         TransactionCalculator $transactionCalculator,
         StraumurHelper $straumurHelper
     ) {
-        parent::__construct($validator, $gatewayConfig, $orderRepository, $searchCriteriaBuilder, $logger);
+        parent::__construct($gatewayConfig, $orderRepository, $logger);
         $this->transactionCalculator = $transactionCalculator;
         $this->straumurHelper = $straumurHelper;
     }
@@ -45,57 +42,20 @@ class RefundProcessor extends AbstractProcessor
     /**
      * Check if this processor can handle the webhook
      *
-     * Handles webhooks with eventType="Refund" when order HAS captured amounts
+     * Handles webhooks with eventType="Refund" when the order HAS captured amounts
      * (i.e., true refund of captured payment)
      *
      * @param array $payload
+     * @param OrderInterface $order
      * @return bool
      */
-    public function canProcess(array $payload): bool
+    public function canProcess(array $payload, OrderInterface $order): bool
     {
-        // Check if this is a Refund event type
-        $additionalData = $payload['additionalData'] ?? [];
-        $eventType = $additionalData['eventType'] ?? $additionalData['EventType'] ?? '';
-
-        if ($eventType !== 'Refund') {
+        if ($this->detectEventType($payload) !== 'refund') {
             return false;
         }
 
-        // Need to check if order has captures to distinguish refund from void
-        $merchantReference = $payload['merchantReference'] ?? $payload['MerchantReference'] ?? '';
-        if (empty($merchantReference)) {
-            return false;
-        }
-
-        try {
-            $searchCriteria = $this->searchCriteriaBuilder
-                ->addFilter('increment_id', $merchantReference)
-                ->create();
-            $orders = $this->orderRepository->getList($searchCriteria);
-
-            if ($orders->getTotalCount() === 0) {
-                return false;
-            }
-
-            $order = $orders->getItems()[array_key_first($orders->getItems())];
-
-            // This processor handles refund: eventType=Refund + HAS captured amounts
-            $hasCapturedAmounts = $this->transactionCalculator->hasCapturedAmount($order);
-
-            $this->logger->info('RefundProcessor canProcess check', [
-                'order_id' => $order->getIncrementId(),
-                'has_captured_amounts' => $hasCapturedAmounts,
-                'can_process' => $hasCapturedAmounts
-            ]);
-
-            return $hasCapturedAmounts; // Only process if has captures (true refund)
-
-        } catch (\Exception $e) {
-            $this->logger->error('Error checking if RefundProcessor can process webhook', [
-                'error' => $e->getMessage()
-            ]);
-            return false;
-        }
+        return $this->transactionCalculator->hasCapturedAmount($order);
     }
 
     /**
@@ -103,13 +63,11 @@ class RefundProcessor extends AbstractProcessor
      */
     protected function processWebhook(array $payload, OrderInterface $order): array
     {
-        // Handle both lowercase and uppercase field names
-        $successValue = $payload['success'] ?? $payload['Success'] ?? 'false';
-        $success = ($successValue === 'true' || $successValue === true);
-        $payfacReference = $payload['payfacReference'] ?? $payload['PayfacReference'] ?? '';
-        $amountRaw = $payload['amount'] ?? $payload['Amount'] ?? null;
+        $success = $this->isSuccess($payload);
+        $payfacReference = WebhookPayload::string($payload, 'payfacReference');
+        $amountRaw = WebhookPayload::field($payload, 'amount');
         $amount = $amountRaw !== null ? (float)$amountRaw : null;
-        $reason = $payload['reason'] ?? $payload['Reason'] ?? 'Customer request';
+        $reason = WebhookPayload::string($payload, 'reason') ?: 'Customer request';
 
         // Convert amount to major units for display
         $currency = $order->getOrderCurrencyCode();
