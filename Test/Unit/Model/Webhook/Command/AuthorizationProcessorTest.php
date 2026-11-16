@@ -51,10 +51,25 @@ class AuthorizationProcessorTest extends TestCase
             $this->orderRepository,
             new RecordingLogger(),
             self::createStub(OrderSender::class),
-            self::createStub(StraumurHelper::class),
+            $this->helper(),
             $this->transactionCalculator,
             $this->paymentStateManager
         );
+    }
+
+    /**
+     * Helper whose formatAmount() converts two-decimal currencies to minor units, as Helper\Data does.
+     *
+     * @return StraumurHelper
+     */
+    private function helper(): StraumurHelper
+    {
+        $helper = self::createStub(StraumurHelper::class);
+        $helper->method('formatAmount')->willReturnCallback(function ($amount, string $currency): int {
+            return (int) round((float) $amount * 100);
+        });
+
+        return $helper;
     }
 
     /**
@@ -79,6 +94,8 @@ class AuthorizationProcessorTest extends TestCase
         $order->method('getState')->willReturn($state);
         $order->method('canCancel')->willReturn(true);
         $order->method('getIncrementId')->willReturn('000000123');
+        $order->method('getGrandTotal')->willReturn(129.90);
+        $order->method('getOrderCurrencyCode')->willReturn('EUR');
 
         return $order;
     }
@@ -153,6 +170,7 @@ class AuthorizationProcessorTest extends TestCase
     {
         $payload = self::declined();
         $payload['success'] = 'true';
+        $payload['currency'] = 'EUR';
         $payload['additionalData']['authCode'] = 'A1';
 
         return $payload;
@@ -214,6 +232,49 @@ class AuthorizationProcessorTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
 
         $this->processor()->process(self::approved(), $order);
+    }
+
+    /**
+     * @return array
+     */
+    public static function paymentsThatDoNotCoverTheOrderTotal(): array
+    {
+        return [
+            'cart total increased after paying' => ['10000', 'EUR', '10000 EUR'],
+            'cart total decreased after paying' => ['15000', 'EUR', '15000 EUR'],
+            'different currency' => ['12990', 'ISK', '12990 ISK'],
+            'no amount' => [null, 'EUR', '(none) EUR'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('paymentsThatDoNotCoverTheOrderTotal')]
+    public function testPaymentThatDoesNotMatchTheOrderTotalIsNotApplied(
+        ?string $amount,
+        string $currency,
+        string $paidDescription
+    ): void {
+        // The order total is 129.90 EUR (12990 minor units).
+        $order = $this->order(Order::STATE_NEW, false);
+        $order->expects($this->never())->method('cancel');
+        $order->expects($this->once())->method('addCommentToStatusHistory')->with($this->callback(
+            function ($comment) use ($paidDescription): bool {
+                return strpos((string) $comment, 'Straumur payment ' . $paidDescription
+                    . ' does not match the order total (12990 EUR)') === 0;
+            }
+        ));
+        $this->orderRepository = $this->createMock(OrderRepositoryInterface::class);
+        $this->orderRepository->expects($this->once())->method('save')->with($order);
+        $this->transactionCalculator = $this->createMock(TransactionCalculator::class);
+        $this->transactionCalculator->expects($this->never())->method('addTransactionToHistory');
+        $this->paymentStateManager = $this->createMock(PaymentStateManager::class);
+        $this->paymentStateManager->expects($this->never())->method('markPaymentAuthorized');
+        $payload = self::approved();
+        $payload['amount'] = $amount;
+        $payload['currency'] = $currency;
+
+        $result = $this->processor()->process($payload, $order);
+
+        $this->assertSame('failed', $result['status']);
     }
 
     public function testCanProcessOnlyAuthorizationEvents(): void

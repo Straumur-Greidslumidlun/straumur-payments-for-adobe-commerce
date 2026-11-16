@@ -118,6 +118,41 @@ class AuthorizationProcessor extends AbstractProcessor
                 );
             }
             
+            // A headless cart can change after its session was paid; never mark a different amount as paid.
+            $mismatch = $this->describeAmountMismatch($payload, $order);
+            if ($mismatch !== null) {
+                $order->addCommentToStatusHistory(
+                    __(
+                        'Straumur payment %1 does not match the order total (%2); the order was not marked as paid.'
+                        . ' Review the payment in the Straumur portal.',
+                        $mismatch['paid'],
+                        $mismatch['expected']
+                    ),
+                    false,
+                    false
+                );
+                $this->orderRepository->save($order);
+
+                $this->logger->warning('Straumur authorization amount differs from the order total; not applied', [
+                    'order_id' => $order->getIncrementId(),
+                    'payfac_reference' => $payfacReference,
+                    'paid' => $mismatch['paid'],
+                    'expected' => $mismatch['expected'],
+                ]);
+
+                return [
+                    'status' => 'failed',
+                    'event_type' => 'authorization',
+                    'order_id' => $order->getId(),
+                    'order_increment_id' => $order->getIncrementId(),
+                    'transaction_id' => $payfacReference,
+                    'amount' => $amount,
+                    'order_state' => $order->getState(),
+                    'order_status' => $order->getStatus(),
+                    'note' => 'Amount or currency differs from the order total',
+                ];
+            }
+
             // Add to transaction history (new multi-transaction tracking)
             $this->transactionCalculator->addTransactionToHistory($payment, 'authorizations', [
                 'amount' => $amount ?? $order->getGrandTotal() * 100, // Convert to minor units if not provided
@@ -206,6 +241,36 @@ class AuthorizationProcessor extends AbstractProcessor
         }
 
         return in_array($order->getState(), self::PRE_PAYMENT_STATES, true);
+    }
+
+    /**
+     * Paid and expected amounts ("12990 ISK"), or null when the payment covers exactly the order total.
+     *
+     * Both are compared in Straumur's minor units, as Helper\Data::formatAmount() produces them for the session.
+     *
+     * @param array $payload
+     * @param OrderInterface $order
+     * @return array|null ['paid' => string, 'expected' => string]
+     */
+    private function describeAmountMismatch(array $payload, OrderInterface $order): ?array
+    {
+        $paidAmount = WebhookPayload::string($payload, 'amount');
+        $paidCurrency = strtoupper(WebhookPayload::string($payload, 'currency'));
+        $orderCurrency = (string) $order->getOrderCurrencyCode();
+        $expectedAmount = $this->straumurHelper->formatAmount((float) $order->getGrandTotal(), $orderCurrency);
+
+        $matches = is_numeric($paidAmount)
+            && (int) round((float) $paidAmount) === $expectedAmount
+            && $paidCurrency === strtoupper($orderCurrency);
+
+        if ($matches) {
+            return null;
+        }
+
+        return [
+            'paid' => trim(($paidAmount === '' ? '(none)' : $paidAmount) . ' ' . $paidCurrency),
+            'expected' => $expectedAmount . ' ' . $orderCurrency,
+        ];
     }
 
     /**
