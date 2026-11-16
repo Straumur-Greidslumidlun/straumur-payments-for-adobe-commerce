@@ -9,6 +9,7 @@ use Magento\Sales\Api\CreditmemoRepositoryInterface;
 use Straumur\Payment\Model\Service\TransactionCalculator;
 use Straumur\Payment\Model\Service\TransactionValidator;
 use Straumur\Payment\Helper\Data as StraumurHelper;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
 class AdjustmentProcessor extends AbstractProcessor
 {
@@ -38,10 +39,8 @@ class AdjustmentProcessor extends AbstractProcessor
     private $straumurHelper;
 
     /**
-     * @param \Straumur\Payment\Api\Webhook\ValidatorInterface $validator
      * @param \Straumur\Payment\Gateway\Config\Config $gatewayConfig
      * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
-     * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      * @param \Psr\Log\LoggerInterface $logger
      * @param CreditmemoFactory $creditmemoFactory
      * @param CreditmemoRepositoryInterface $creditmemoRepository
@@ -50,10 +49,8 @@ class AdjustmentProcessor extends AbstractProcessor
      * @param StraumurHelper $straumurHelper
      */
     public function __construct(
-        \Straumur\Payment\Api\Webhook\ValidatorInterface $validator,
         \Straumur\Payment\Gateway\Config\Config $gatewayConfig,
         \Magento\Sales\Api\OrderRepositoryInterface $orderRepository,
-        \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder,
         \Psr\Log\LoggerInterface $logger,
         CreditmemoFactory $creditmemoFactory,
         CreditmemoRepositoryInterface $creditmemoRepository,
@@ -61,7 +58,7 @@ class AdjustmentProcessor extends AbstractProcessor
         TransactionValidator $transactionValidator,
         StraumurHelper $straumurHelper
     ) {
-        parent::__construct($validator, $gatewayConfig, $orderRepository, $searchCriteriaBuilder, $logger);
+        parent::__construct($gatewayConfig, $orderRepository, $logger);
         $this->creditmemoFactory = $creditmemoFactory;
         $this->creditmemoRepository = $creditmemoRepository;
         $this->transactionCalculator = $transactionCalculator;
@@ -74,13 +71,11 @@ class AdjustmentProcessor extends AbstractProcessor
      */
     protected function processWebhook(array $payload, OrderInterface $order): array
     {
-        // Handle both lowercase and uppercase field names
-        $successValue = $payload['success'] ?? $payload['Success'] ?? 'false';
-        $success = ($successValue === 'true' || $successValue === true);
-        $payfacReference = $payload['payfacReference'] ?? $payload['PayfacReference'] ?? '';
-        $amountRaw = $payload['amount'] ?? $payload['Amount'] ?? null;
+        $success = $this->isSuccess($payload);
+        $payfacReference = WebhookPayload::string($payload, 'payfacReference');
+        $amountRaw = WebhookPayload::field($payload, 'amount');
         $amount = $amountRaw !== null ? (float)$amountRaw : null;
-        $reason = $payload['reason'] ?? $payload['Reason'] ?? 'Adjustment';
+        $reason = WebhookPayload::string($payload, 'reason') ?: 'Adjustment';
         
         if ($success) {
             $payment = $order->getPayment();

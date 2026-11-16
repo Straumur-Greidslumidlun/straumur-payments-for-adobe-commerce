@@ -3,18 +3,24 @@ declare(strict_types=1);
 
 namespace Straumur\Payment\Model\Webhook\Command;
 
-use Straumur\Payment\Api\Webhook\ValidatorInterface;
-use Straumur\Payment\Gateway\Config\Config;
+use Psr\Log\LoggerInterface;
 use Straumur\Payment\Api\Security\HmacValidatorInterface;
+use Straumur\Payment\Api\Webhook\ValidatorInterface;
 use Straumur\Payment\Helper\Data as StraumurHelper;
-use Magento\Framework\Exception\LocalizedException;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
+/**
+ * Verifies that a webhook was signed by Straumur with this shop's webhook secret.
+ *
+ * Only the signature is checked. Straumur sends every payment on the merchant's contracts, including
+ * terminal payments and payment links where merchantReference and checkoutReference are null, so
+ * requiring business fields here would reject correctly signed events.
+ */
 abstract class AbstractValidator implements ValidatorInterface
 {
-    /**
-     * @var Config
-     */
-    protected $gatewayConfig;
+    public const ERROR_SECRET_NOT_CONFIGURED = 'Webhook secret not configured';
+    public const ERROR_MISSING_SIGNATURE = 'Missing webhook signature';
+    public const ERROR_INVALID_SIGNATURE = 'Invalid webhook signature';
 
     /**
      * @var HmacValidatorInterface
@@ -27,28 +33,25 @@ abstract class AbstractValidator implements ValidatorInterface
     protected $straumurHelper;
 
     /**
+     * @var LoggerInterface
+     */
+    protected $logger;
+
+    /**
      * @var string
      */
     protected $errorMessage = '';
 
     /**
-     * @var \Psr\Log\LoggerInterface
-     */
-    protected $logger;
-
-    /**
-     * @param Config $gatewayConfig
      * @param HmacValidatorInterface $hmacValidator
      * @param StraumurHelper $straumurHelper
-     * @param \Psr\Log\LoggerInterface $logger
+     * @param LoggerInterface $logger
      */
     public function __construct(
-        Config $gatewayConfig,
         HmacValidatorInterface $hmacValidator,
         StraumurHelper $straumurHelper,
-        \Psr\Log\LoggerInterface $logger
+        LoggerInterface $logger
     ) {
-        $this->gatewayConfig = $gatewayConfig;
         $this->hmacValidator = $hmacValidator;
         $this->straumurHelper = $straumurHelper;
         $this->logger = $logger;
@@ -59,23 +62,23 @@ abstract class AbstractValidator implements ValidatorInterface
      */
     public function validate(array $payload, array $headers): bool
     {
-        try {
-            $this->logger->info('=== WEBHOOK VALIDATION START ===');
-            $this->logger->info('Validating webhook structure...');
-            $this->validateStructure($payload);
-            $this->logger->info('Structure validation passed');
-            
-            $this->logger->info('Validating webhook signature...');
-            $this->validateSignature($payload, $headers);
-            $this->logger->info('Signature validation passed');
-            $this->logger->info('=== WEBHOOK VALIDATION END ===');
-            
-            return true;
-        } catch (\Exception $e) {
-            $this->errorMessage = $e->getMessage();
-            $this->logger->error('Webhook validation failed: ' . $e->getMessage());
-            return false;
+        $this->errorMessage = '';
+
+        $secret = trim($this->straumurHelper->getWebhookSecret());
+        if ($secret === '') {
+            return $this->fail(self::ERROR_SECRET_NOT_CONFIGURED);
         }
+
+        $signature = trim(WebhookPayload::string($payload, 'hmacSignature'));
+        if ($signature === '') {
+            return $this->fail(self::ERROR_MISSING_SIGNATURE);
+        }
+
+        if (!$this->hmacValidator->validateSignature($payload, $signature, $secret)) {
+            return $this->fail(self::ERROR_INVALID_SIGNATURE);
+        }
+
+        return true;
     }
 
     /**
@@ -87,88 +90,15 @@ abstract class AbstractValidator implements ValidatorInterface
     }
 
     /**
-     * Validate payload structure
+     * Record the reason and report failure.
      *
-     * @param array $payload
-     * @throws LocalizedException
+     * @param string $message
+     * @return bool
      */
-    protected function validateStructure(array $payload): void
+    private function fail(string $message): bool
     {
-        $requiredFields = $this->getRequiredFields();
-        
-        foreach ($requiredFields as $field) {
-            if (!isset($payload[$field]) && !isset($payload[ucfirst($field)])) {
-                throw new LocalizedException(__('Missing required field: %1', $field));
-            }
-        }
+        $this->errorMessage = $message;
+
+        return false;
     }
-
-    /**
-     * Validate HMAC signature
-     *
-     * @param array $payload
-     * @param array $headers
-     * @throws LocalizedException
-     */
-    protected function validateSignature(array $payload, array $headers): void
-    {
-        $this->logger->info('Validating HMAC signature from payload body...');
-        
-        // Extract signature from payload body (Straumur format)
-        $signature = $this->extractSignatureFromPayload($payload);
-        
-        if (empty($signature)) {
-            $this->logger->error('No HMAC signature found in payload. Available fields: ' . json_encode(array_keys($payload)));
-            throw new LocalizedException(__('Missing webhook signature in payload'));
-        }
-        
-        $this->logger->info('Found HMAC signature in payload: ' . $signature);
-
-        $secret = $this->getWebhookSecret();
-        
-        if (empty($secret)) {
-            $this->logger->error('Webhook secret not configured in system configuration');
-            throw new LocalizedException(__('Webhook secret not configured'));
-        }
-        
-        $this->logger->info('Using webhook secret configured: YES');
-        $this->logger->info('Validating HMAC signature...');
-
-        if (!$this->hmacValidator->validateSignature($payload, $signature, $secret)) {
-            $this->logger->error('HMAC validation failed');
-            $this->logger->error('Expected signature does not match provided signature');
-            throw new LocalizedException(__('Invalid webhook signature - HMAC validation failed'));
-        }
-        
-        $this->logger->info('HMAC signature validation successful');
-    }
-
-    /**
-     * Extract HMAC signature from payload body (Straumur format)
-     *
-     * @param array $payload
-     * @return string
-     */
-    protected function extractSignatureFromPayload(array $payload): string
-    {
-        // Straumur sends HMAC signature in payload body as 'hmacSignature' field
-        return trim((string) ($payload['hmacSignature'] ?? $payload['HmacSignature'] ?? ''));
-    }
-
-    /**
-     * Get webhook secret from configuration
-     *
-     * @return string
-     */
-    protected function getWebhookSecret(): string
-    {
-        return $this->straumurHelper->getWebhookSecret();
-    }
-
-    /**
-     * Get required fields for validation
-     *
-     * @return array
-     */
-    abstract protected function getRequiredFields(): array;
 }

@@ -8,9 +8,19 @@ use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 use Straumur\Payment\Helper\Data as StraumurHelper;
 use Straumur\Payment\Model\Service\TransactionCalculator;
 use Straumur\Payment\Model\Service\PaymentStateManager;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
 class AuthorizationProcessor extends AbstractProcessor
 {
+    /**
+     * States of an order that is still waiting for its payment.
+     */
+    private const PRE_PAYMENT_STATES = [
+        \Magento\Sales\Model\Order::STATE_PENDING_PAYMENT,
+        \Magento\Sales\Model\Order::STATE_NEW,
+        \Magento\Sales\Model\Order::STATE_PAYMENT_REVIEW, // Magento may put order in payment_review
+    ];
+
     /**
      * @var OrderSender
      */
@@ -32,10 +42,8 @@ class AuthorizationProcessor extends AbstractProcessor
     private $paymentStateManager;
 
     /**
-     * @param \Straumur\Payment\Api\Webhook\ValidatorInterface $validator
      * @param \Straumur\Payment\Gateway\Config\Config $gatewayConfig
      * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
-     * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      * @param \Psr\Log\LoggerInterface $logger
      * @param OrderSender $orderSender
      * @param StraumurHelper $straumurHelper
@@ -43,17 +51,15 @@ class AuthorizationProcessor extends AbstractProcessor
      * @param PaymentStateManager $paymentStateManager
      */
     public function __construct(
-        \Straumur\Payment\Api\Webhook\ValidatorInterface $validator,
         \Straumur\Payment\Gateway\Config\Config $gatewayConfig,
         \Magento\Sales\Api\OrderRepositoryInterface $orderRepository,
-        \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder,
         \Psr\Log\LoggerInterface $logger,
         OrderSender $orderSender,
         StraumurHelper $straumurHelper,
         TransactionCalculator $transactionCalculator,
         PaymentStateManager $paymentStateManager
     ) {
-        parent::__construct($validator, $gatewayConfig, $orderRepository, $searchCriteriaBuilder, $logger);
+        parent::__construct($gatewayConfig, $orderRepository, $logger);
         $this->orderSender = $orderSender;
         $this->straumurHelper = $straumurHelper;
         $this->transactionCalculator = $transactionCalculator;
@@ -64,11 +70,9 @@ class AuthorizationProcessor extends AbstractProcessor
      */
     protected function processWebhook(array $payload, OrderInterface $order): array
     {
-        // Handle both lowercase and uppercase field names
-        $successValue = $payload['success'] ?? $payload['Success'] ?? 'false';
-        $success = ($successValue === 'true' || $successValue === true);
-        $payfacReference = $payload['payfacReference'] ?? $payload['PayfacReference'] ?? '';
-        $amountRaw = $payload['amount'] ?? $payload['Amount'] ?? null;
+        $success = $this->isSuccess($payload);
+        $payfacReference = WebhookPayload::string($payload, 'payfacReference');
+        $amountRaw = WebhookPayload::field($payload, 'amount');
         $amount = $amountRaw !== null ? (float)$amountRaw : null;
         
         if ($success) {
@@ -114,6 +118,41 @@ class AuthorizationProcessor extends AbstractProcessor
                 );
             }
             
+            // A headless cart can change after its session was paid; never mark a different amount as paid.
+            $mismatch = $this->describeAmountMismatch($payload, $order);
+            if ($mismatch !== null) {
+                $order->addCommentToStatusHistory(
+                    __(
+                        'Straumur payment %1 does not match the order total (%2); the order was not marked as paid.'
+                        . ' Review the payment in the Straumur portal.',
+                        $mismatch['paid'],
+                        $mismatch['expected']
+                    ),
+                    false,
+                    false
+                );
+                $this->orderRepository->save($order);
+
+                $this->logger->warning('Straumur authorization amount differs from the order total; not applied', [
+                    'order_id' => $order->getIncrementId(),
+                    'payfac_reference' => $payfacReference,
+                    'paid' => $mismatch['paid'],
+                    'expected' => $mismatch['expected'],
+                ]);
+
+                return [
+                    'status' => 'failed',
+                    'event_type' => 'authorization',
+                    'order_id' => $order->getId(),
+                    'order_increment_id' => $order->getIncrementId(),
+                    'transaction_id' => $payfacReference,
+                    'amount' => $amount,
+                    'order_state' => $order->getState(),
+                    'order_status' => $order->getStatus(),
+                    'note' => 'Amount or currency differs from the order total',
+                ];
+            }
+
             // Add to transaction history (new multi-transaction tracking)
             $this->transactionCalculator->addTransactionToHistory($payment, 'authorizations', [
                 'amount' => $amount ?? $order->getGrandTotal() * 100, // Convert to minor units if not provided
@@ -140,6 +179,20 @@ class AuthorizationProcessor extends AbstractProcessor
                 'customer_returned' => $this->paymentStateManager->hasCustomerReturned($order)
             ]);
             
+        } elseif (!$this->isAwaitingPayment($order)) {
+            // A declined attempt (for example a second card on a payment link) must not cancel an order
+            // that is already authorized or paid.
+            $order->addCommentToStatusHistory(
+                __('A Straumur payment attempt for this order was declined; the order was not changed.'),
+                false,
+                false
+            );
+            $this->orderRepository->save($order);
+
+            $this->logger->warning('Declined authorization for an order that is not awaiting payment; not cancelled', [
+                'order_id' => $order->getIncrementId(),
+                'order_state' => $order->getState(),
+            ]);
         } else {
             // Authorization failed - cancel order
             if ($order->canCancel()) {
@@ -175,6 +228,52 @@ class AuthorizationProcessor extends AbstractProcessor
     }
 
     /**
+     * Whether the order is still waiting for its payment: not yet authorized and in a pre-payment state.
+     *
+     * @param OrderInterface $order
+     * @return bool
+     */
+    private function isAwaitingPayment(OrderInterface $order): bool
+    {
+        $payment = $order->getPayment();
+        if ($payment !== null && $payment->getAdditionalInformation(PaymentStateManager::FLAG_PAYMENT_AUTHORIZED)) {
+            return false;
+        }
+
+        return in_array($order->getState(), self::PRE_PAYMENT_STATES, true);
+    }
+
+    /**
+     * Paid and expected amounts ("12990 ISK"), or null when the payment covers exactly the order total.
+     *
+     * Both are compared in Straumur's minor units, as Helper\Data::formatAmount() produces them for the session.
+     *
+     * @param array $payload
+     * @param OrderInterface $order
+     * @return array|null ['paid' => string, 'expected' => string]
+     */
+    private function describeAmountMismatch(array $payload, OrderInterface $order): ?array
+    {
+        $paidAmount = WebhookPayload::string($payload, 'amount');
+        $paidCurrency = strtoupper(WebhookPayload::string($payload, 'currency'));
+        $orderCurrency = (string) $order->getOrderCurrencyCode();
+        $expectedAmount = $this->straumurHelper->formatAmount((float) $order->getGrandTotal(), $orderCurrency);
+
+        $matches = is_numeric($paidAmount)
+            && (int) round((float) $paidAmount) === $expectedAmount
+            && $paidCurrency === strtoupper($orderCurrency);
+
+        if ($matches) {
+            return null;
+        }
+
+        return [
+            'paid' => trim(($paidAmount === '' ? '(none)' : $paidAmount) . ' ' . $paidCurrency),
+            'expected' => $expectedAmount . ' ' . $orderCurrency,
+        ];
+    }
+
+    /**
      * Check if order can be authorized
      *
      * @param OrderInterface $order
@@ -183,12 +282,12 @@ class AuthorizationProcessor extends AbstractProcessor
     private function canAuthorizeOrder(OrderInterface $order): bool
     {
         // Allow authorization for orders in these states
-        return in_array($order->getState(), [
-            \Magento\Sales\Model\Order::STATE_PENDING_PAYMENT,
-            \Magento\Sales\Model\Order::STATE_NEW,
-            \Magento\Sales\Model\Order::STATE_PAYMENT_REVIEW,  // Magento may put order in payment_review
-            \Magento\Sales\Model\Order::STATE_PROCESSING  // Allow processing state for edge cases
-        ]);
+        // Processing is allowed too, for edge cases.
+        return in_array(
+            $order->getState(),
+            array_merge(self::PRE_PAYMENT_STATES, [\Magento\Sales\Model\Order::STATE_PROCESSING]),
+            true
+        );
     }
 
     /**

@@ -7,20 +7,38 @@ use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
 use Magento\Framework\App\Request\InvalidRequestException;
 use Magento\Framework\App\RequestInterface;
+use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Controller\Result\JsonFactory;
 use Magento\Framework\Controller\ResultInterface;
 use Magento\Framework\HTTP\PhpEnvironment\RemoteAddress;
 use Psr\Log\LoggerInterface;
 use Straumur\Payment\Api\Webhook\RouterInterface;
+use Straumur\Payment\Api\Webhook\ValidatorInterface;
 use Straumur\Payment\Helper\Data as StraumurHelper;
+use Straumur\Payment\Model\Webhook\OrderResolver;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
+/**
+ * Straumur payment webhook endpoint: POST /straumur/webhook
+ *
+ * Straumur sends a merchant's webhook every payment on the contracts it is subscribed to, and treats any
+ * non-2xx answer as the endpoint failing (events are held and the webhook is eventually disabled). So:
+ * - a request that does not carry a valid signature for this shop's secret gets 403 (or 400 if it is not JSON);
+ * - every correctly signed request gets 200: events for other orders are acknowledged as ignored, and
+ *   processing errors are logged and acknowledged.
+ */
 class Index implements HttpPostActionInterface, CsrfAwareActionInterface
 {
     /**
      * Maximum webhook payload size (10MB as per Straumur API documentation)
      */
-    private const MAX_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-    
+    private const MAX_PAYLOAD_SIZE = 10 * 1024 * 1024;
+
+    public const MESSAGE_PROCESSED = 'Processed.';
+    public const MESSAGE_IGNORED_FOREIGN = 'Ignored: not an order of this shop.';
+    public const MESSAGE_IGNORED_EVENT = 'Ignored: unsupported event type.';
+    public const MESSAGE_FAILED = 'Received; processing failed and was logged.';
+
     /**
      * @var RequestInterface
      */
@@ -52,12 +70,24 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
     private $straumurHelper;
 
     /**
+     * @var ValidatorInterface
+     */
+    private $signatureValidator;
+
+    /**
+     * @var OrderResolver
+     */
+    private $orderResolver;
+
+    /**
      * @param RequestInterface $request
      * @param JsonFactory $jsonFactory
      * @param RouterInterface $webhookRouter
      * @param LoggerInterface $logger
      * @param RemoteAddress $remoteAddress
      * @param StraumurHelper $straumurHelper
+     * @param ValidatorInterface $signatureValidator
+     * @param OrderResolver $orderResolver
      */
     public function __construct(
         RequestInterface $request,
@@ -65,7 +95,9 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
         RouterInterface $webhookRouter,
         LoggerInterface $logger,
         RemoteAddress $remoteAddress,
-        StraumurHelper $straumurHelper
+        StraumurHelper $straumurHelper,
+        ValidatorInterface $signatureValidator,
+        OrderResolver $orderResolver
     ) {
         $this->request = $request;
         $this->jsonFactory = $jsonFactory;
@@ -73,6 +105,8 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
         $this->logger = $logger;
         $this->remoteAddress = $remoteAddress;
         $this->straumurHelper = $straumurHelper;
+        $this->signatureValidator = $signatureValidator;
+        $this->orderResolver = $orderResolver;
     }
 
     /**
@@ -80,128 +114,120 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
      */
     public function execute(): ResultInterface
     {
-        $result = $this->jsonFactory->create();
+        if (!$this->isSourceAllowed()) {
+            return $this->respond(403, ['message' => 'Forbidden.']);
+        }
 
+        $payload = $this->readPayload();
+        if ($payload === null) {
+            return $this->respond(400, ['message' => 'Invalid payload.']);
+        }
+
+        // Nothing in the payload is trusted until the signature is verified.
+        if (!$this->signatureValidator->validate($payload, [])) {
+            $this->logger->warning('Straumur webhook rejected: ' . $this->signatureValidator->getErrorMessage(), [
+                'client_ip' => $this->remoteAddress->getRemoteAddress(),
+            ]);
+            return $this->respond(403, ['message' => 'Invalid signature.']);
+        }
+
+        // From here on the request is from Straumur, and the answer is always 200.
         try {
-            // Basic security validation
-            $this->validateWebhookSecurity();
-            
-            // Log incoming request details
-            $this->logger->info('=== STRAUMUR WEBHOOK REQUEST START ===');
-            
-            // Get raw payload
-            $rawPayload = $this->request->getContent();
-            if (empty($rawPayload)) {
-                $rawPayload = file_get_contents('php://input');
-            }
-            
-            // Validate payload size to prevent memory issues
-            $payloadSize = strlen($rawPayload);
-            if ($payloadSize > self::MAX_PAYLOAD_SIZE) {
-                $this->logger->error('Webhook payload too large', [
-                    'payload_size' => $payloadSize,
-                    'max_size' => self::MAX_PAYLOAD_SIZE
-                ]);
-                throw new \InvalidArgumentException('Payload too large: ' . round($payloadSize / 1024 / 1024, 2) . 'MB exceeds maximum of ' . (self::MAX_PAYLOAD_SIZE / 1024 / 1024) . 'MB');
-            }
-            
-            $this->logger->info('Raw Payload: ' . $rawPayload);
-            
-            // Parse JSON
-            $payload = json_decode($rawPayload, true);
-            
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                $this->logger->error('JSON Parse Error: ' . json_last_error_msg());
-                throw new \InvalidArgumentException('Invalid JSON payload: ' . json_last_error_msg());
+            $order = $this->orderResolver->resolve($payload);
+
+            if ($order === null) {
+                $this->logger->info(
+                    'Straumur webhook ignored: not an order of this shop.',
+                    WebhookPayload::logContext($payload)
+                );
+                return $this->respond(200, ['message' => self::MESSAGE_IGNORED_FOREIGN, 'ignored' => true]);
             }
 
-            // Get headers
-            $headers = $this->getHeaders();
-            $this->logger->info('Request Headers: ' . json_encode($headers));
-            
-            $this->logger->info('Parsed Payload: ' . json_encode($payload, JSON_PRETTY_PRINT));
-            
-   
+            $result = $this->webhookRouter->route($payload, $order);
 
-            $processingResult = $this->webhookRouter->route($payload, $headers);
+            if (($result['status'] ?? null) === 'ignored') {
+                return $this->respond(200, ['message' => self::MESSAGE_IGNORED_EVENT, 'ignored' => true]);
+            }
 
-            $this->logger->info('=== STRAUMUR WEBHOOK REQUEST END ===');
+            return $this->respond(200, ['message' => self::MESSAGE_PROCESSED]);
+        } catch (\Throwable $e) {
+            $this->logger->error('Straumur webhook processing failed', WebhookPayload::logContext($payload) + [
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'file' => $e->getFile() . ':' . $e->getLine(),
+            ]);
 
-            // Return 200 OK with no body (production-ready response)
-            return $result->setHttpResponseCode(200)->setData([]);
-
-        } catch (\Exception $e) {
-            $this->logger->error('=== STRAUMUR WEBHOOK ERROR ===');
-            $this->logger->error('Error Message: ' . $e->getMessage());
-            $this->logger->error('Error Code: ' . $e->getCode());
-            $this->logger->error('Error File: ' . $e->getFile() . ':' . $e->getLine());
-            $this->logger->error('Stack Trace: ' . $e->getTraceAsString());
-            $this->logger->error('=== STRAUMUR WEBHOOK ERROR END ===');
-
-            // Return 400 Bad Request with no body
-            return $result->setHttpResponseCode(400)->setData([]);
+            return $this->respond(200, ['message' => self::MESSAGE_FAILED, 'processed' => false]);
         }
     }
 
-
     /**
-     * Get request headers using Magento's request object
+     * JSON response with a status code.
      *
-     * @return array
+     * @param int $statusCode
+     * @param array $data
+     * @return Json
      */
-    private function getHeaders(): array
+    private function respond(int $statusCode, array $data): Json
     {
-        $headers = [];
-        
-        // Get all headers from Magento's request object
-        foreach ($this->request->getHeaders() as $header) {
-            if ($header) {
-                $headers[$header->getFieldName()] = $header->getFieldValue();
-            }
-        }
+        $result = $this->jsonFactory->create();
+        $result->setHttpResponseCode($statusCode);
+        $result->setData($data);
 
-        return $headers;
+        return $result;
     }
 
     /**
-     * Validate webhook security (basic CSRF protection)
+     * Decoded JSON object from the request body, or null when it is missing, too large or not a JSON object.
      *
-     * @return void
-     * @throws \Magento\Framework\Exception\LocalizedException
+     * @return array|null
      */
-    private function validateWebhookSecurity(): void
+    private function readPayload(): ?array
     {
-        // Get client IP address
-        $clientIp = $this->remoteAddress->getRemoteAddress();
-        $this->logger->info('Webhook request from IP: ' . $clientIp);
+        $rawPayload = (string) $this->request->getContent();
 
-        // Check if webhook IP filtering is enabled in config
+        if ($rawPayload === '' || strlen($rawPayload) > self::MAX_PAYLOAD_SIZE) {
+            $this->logger->warning('Straumur webhook rejected: empty or oversized body', [
+                'payload_size' => strlen($rawPayload),
+            ]);
+            return null;
+        }
+
+        $payload = json_decode($rawPayload, true);
+
+        // json_decode() returns an array for JSON arrays too; only an object (including "{}") is a payload.
+        if (!is_array($payload) || ltrim($rawPayload)[0] !== '{') {
+            $this->logger->warning('Straumur webhook rejected: body is not a JSON object', [
+                'json_error' => json_last_error_msg(),
+            ]);
+            return null;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Whether the client IP passes the optional allow-list from configuration.
+     *
+     * @return bool
+     */
+    private function isSourceAllowed(): bool
+    {
         $allowedIps = $this->straumurHelper->getWebhookAllowedIps();
-        
-        if (!empty($allowedIps) && !$this->isIpAllowed($clientIp, $allowedIps)) {
-            $this->logger->error('Webhook request rejected: IP not in allowed list', [
-                'client_ip' => $clientIp,
-                'allowed_ips' => $allowedIps
-            ]);
-            throw new \Magento\Framework\Exception\LocalizedException(
-                __('Access denied: Invalid source IP')
-            );
+
+        if (empty($allowedIps)) {
+            return true;
         }
 
-        // Additional security: Check User-Agent to prevent basic bot attacks
-        $userAgent = $this->request->getHeader('User-Agent');
-        if (empty($userAgent) || $this->isSuspiciousUserAgent($userAgent)) {
-            $this->logger->warning('Suspicious webhook request: Invalid User-Agent', [
-                'user_agent' => $userAgent ?: 'EMPTY',
-                'client_ip' => $clientIp
-            ]);
+        $clientIp = (string) $this->remoteAddress->getRemoteAddress();
+
+        if ($this->isIpAllowed($clientIp, $allowedIps)) {
+            return true;
         }
 
-        // Log successful security validation
-        $this->logger->info('Webhook security validation passed', [
-            'client_ip' => $clientIp,
-            'user_agent' => $userAgent ?: 'EMPTY'
-        ]);
+        $this->logger->error('Straumur webhook rejected: IP not in allowed list', ['client_ip' => $clientIp]);
+
+        return false;
     }
 
     /**
@@ -214,21 +240,17 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
     private function isIpAllowed(string $clientIp, array $allowedIps): bool
     {
         foreach ($allowedIps as $allowedIp) {
-            $allowedIp = trim($allowedIp);
-            
-            // Support CIDR notation and exact matches
+            $allowedIp = trim((string) $allowedIp);
+
             if ($allowedIp === $clientIp) {
                 return true;
             }
-            
-            // Basic CIDR support for common cases like 192.168.1.0/24
-            if (strpos($allowedIp, '/') !== false) {
-                if ($this->ipInCidr($clientIp, $allowedIp)) {
-                    return true;
-                }
+
+            if (strpos($allowedIp, '/') !== false && $this->ipInCidr($clientIp, $allowedIp)) {
+                return true;
             }
         }
-        
+
         return false;
     }
 
@@ -242,45 +264,18 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
     private function ipInCidr(string $ip, string $cidr): bool
     {
         list($network, $mask) = explode('/', $cidr);
-        
+
         if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) ||
             !filter_var($network, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             return false;
         }
-        
+
         $mask = (int) $mask;
         if ($mask < 0 || $mask > 32) {
             return false;
         }
-        
+
         return (ip2long($ip) & ~((1 << (32 - $mask)) - 1)) === (ip2long($network) & ~((1 << (32 - $mask)) - 1));
-    }
-
-    /**
-     * Check if User-Agent looks suspicious
-     *
-     * @param string $userAgent
-     * @return bool
-     */
-    private function isSuspiciousUserAgent(string $userAgent): bool
-    {
-        $suspiciousPatterns = [
-            '/bot/i',
-            '/crawler/i',
-            '/spider/i',
-            '/curl/i',
-            '/wget/i',
-            '/python/i',
-            '/perl/i'
-        ];
-
-        foreach ($suspiciousPatterns as $pattern) {
-            if (preg_match($pattern, $userAgent)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -304,8 +299,7 @@ class Index implements HttpPostActionInterface, CsrfAwareActionInterface
      */
     public function validateForCsrf(RequestInterface $request): ?bool
     {
-        // Bypass CSRF validation for webhook endpoints
-        // Webhooks use HMAC signature validation instead
+        // Webhooks are authenticated by their HMAC signature instead.
         return true;
     }
 }

@@ -8,6 +8,7 @@ use Magento\Sales\Model\Order\Email\Sender\InvoiceSender;
 use Straumur\Payment\Model\Service\TransactionCalculator;
 use Straumur\Payment\Model\Service\TransactionValidator;
 use Straumur\Payment\Helper\Data as StraumurHelper;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
 class CaptureProcessor extends AbstractProcessor
 {
@@ -32,10 +33,8 @@ class CaptureProcessor extends AbstractProcessor
     private $straumurHelper;
 
     /**
-     * @param \Straumur\Payment\Api\Webhook\ValidatorInterface $validator
      * @param \Straumur\Payment\Gateway\Config\Config $gatewayConfig
      * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
-     * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      * @param \Psr\Log\LoggerInterface $logger
      * @param InvoiceSender $invoiceSender
      * @param TransactionCalculator $transactionCalculator
@@ -43,17 +42,15 @@ class CaptureProcessor extends AbstractProcessor
      * @param StraumurHelper $straumurHelper
      */
     public function __construct(
-        \Straumur\Payment\Api\Webhook\ValidatorInterface $validator,
         \Straumur\Payment\Gateway\Config\Config $gatewayConfig,
         \Magento\Sales\Api\OrderRepositoryInterface $orderRepository,
-        \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder,
         \Psr\Log\LoggerInterface $logger,
         InvoiceSender $invoiceSender,
         TransactionCalculator $transactionCalculator,
         TransactionValidator $transactionValidator,
         StraumurHelper $straumurHelper
     ) {
-        parent::__construct($validator, $gatewayConfig, $orderRepository, $searchCriteriaBuilder, $logger);
+        parent::__construct($gatewayConfig, $orderRepository, $logger);
         $this->invoiceSender = $invoiceSender;
         $this->transactionCalculator = $transactionCalculator;
         $this->transactionValidator = $transactionValidator;
@@ -64,11 +61,9 @@ class CaptureProcessor extends AbstractProcessor
      */
     protected function processWebhook(array $payload, OrderInterface $order): array
     {
-        // Handle both lowercase and uppercase field names
-        $successValue = $payload['success'] ?? $payload['Success'] ?? 'false';
-        $success = ($successValue === 'true' || $successValue === true);
-        $payfacReference = $payload['payfacReference'] ?? $payload['PayfacReference'] ?? '';
-        $amountRaw = $payload['amount'] ?? $payload['Amount'] ?? null;
+        $success = $this->isSuccess($payload);
+        $payfacReference = WebhookPayload::string($payload, 'payfacReference');
+        $amountRaw = WebhookPayload::field($payload, 'amount');
         $amount = $amountRaw !== null ? (float)$amountRaw : null;
         
         if ($success) {

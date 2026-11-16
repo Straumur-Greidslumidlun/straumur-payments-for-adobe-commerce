@@ -5,6 +5,7 @@ namespace Straumur\Payment\Model\Webhook\Command;
 
 use Magento\Sales\Api\Data\OrderInterface;
 use Straumur\Payment\Model\Service\TransactionCalculator;
+use Straumur\Payment\Model\Webhook\WebhookPayload;
 
 /**
  * Void/Reversal Webhook Processor
@@ -21,79 +22,38 @@ class VoidProcessor extends AbstractProcessor
     private $transactionCalculator;
 
     /**
-     * @param \Straumur\Payment\Api\Webhook\ValidatorInterface $validator
      * @param \Straumur\Payment\Gateway\Config\Config $gatewayConfig
      * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
-     * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      * @param \Psr\Log\LoggerInterface $logger
      * @param TransactionCalculator $transactionCalculator
      */
     public function __construct(
-        \Straumur\Payment\Api\Webhook\ValidatorInterface $validator,
         \Straumur\Payment\Gateway\Config\Config $gatewayConfig,
         \Magento\Sales\Api\OrderRepositoryInterface $orderRepository,
-        \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder,
         \Psr\Log\LoggerInterface $logger,
         TransactionCalculator $transactionCalculator
     ) {
-        parent::__construct($validator, $gatewayConfig, $orderRepository, $searchCriteriaBuilder, $logger);
+        parent::__construct($gatewayConfig, $orderRepository, $logger);
         $this->transactionCalculator = $transactionCalculator;
     }
 
     /**
      * Check if this processor can handle the webhook
      *
-     * Handles webhooks with eventType="Refund" when order has NO captured amounts
+     * Handles webhooks with eventType="Refund" when the order has NO captured amounts
      * (i.e., void/reversal of authorization-only transactions)
      *
      * @param array $payload
+     * @param OrderInterface $order
      * @return bool
      */
-    public function canProcess(array $payload): bool
+    public function canProcess(array $payload, OrderInterface $order): bool
     {
-        // Check if this is a Refund event type
-        $additionalData = $payload['additionalData'] ?? [];
-        $eventType = $additionalData['eventType'] ?? $additionalData['EventType'] ?? '';
-
-        if ($eventType !== 'Refund') {
+        if ($this->detectEventType($payload) !== 'refund') {
             return false;
         }
 
-        // Need to check if order has captures to distinguish void from refund
-        $merchantReference = $payload['merchantReference'] ?? $payload['MerchantReference'] ?? '';
-        if (empty($merchantReference)) {
-            return false;
-        }
-
-        try {
-            $searchCriteria = $this->searchCriteriaBuilder
-                ->addFilter('increment_id', $merchantReference)
-                ->create();
-            $orders = $this->orderRepository->getList($searchCriteria);
-
-            if ($orders->getTotalCount() === 0) {
-                return false;
-            }
-
-            $order = $orders->getItems()[array_key_first($orders->getItems())];
-
-            // This processor handles void: eventType=Refund + NO captured amounts
-            $hasCapturedAmounts = $this->transactionCalculator->hasCapturedAmount($order);
-
-            $this->logger->info('VoidProcessor canProcess check', [
-                'order_id' => $order->getIncrementId(),
-                'has_captured_amounts' => $hasCapturedAmounts,
-                'can_process' => !$hasCapturedAmounts
-            ]);
-
-            return !$hasCapturedAmounts; // Only process if NO captures (void/reversal)
-
-        } catch (\Exception $e) {
-            $this->logger->error('Error checking if VoidProcessor can process webhook', [
-                'error' => $e->getMessage()
-            ]);
-            return false;
-        }
+        return !$this->transactionCalculator->hasCapturedAmount($order);
     }
 
     /**
@@ -101,13 +61,11 @@ class VoidProcessor extends AbstractProcessor
      */
     protected function processWebhook(array $payload, OrderInterface $order): array
     {
-        // Handle both lowercase and uppercase field names
-        $successValue = $payload['success'] ?? $payload['Success'] ?? 'false';
-        $success = ($successValue === 'true' || $successValue === true);
-        $payfacReference = $payload['payfacReference'] ?? $payload['PayfacReference'] ?? '';
-        $amountRaw = $payload['amount'] ?? $payload['Amount'] ?? null;
+        $success = $this->isSuccess($payload);
+        $payfacReference = WebhookPayload::string($payload, 'payfacReference');
+        $amountRaw = WebhookPayload::field($payload, 'amount');
         $amount = $amountRaw !== null ? (float)$amountRaw : null;
-        $reason = $payload['reason'] ?? $payload['Reason'] ?? 'Void authorization';
+        $reason = WebhookPayload::string($payload, 'reason') ?: 'Void authorization';
 
         $payment = $order->getPayment();
 
